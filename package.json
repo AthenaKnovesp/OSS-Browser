@@ -1,0 +1,92 @@
+{
+  "name": "oss-browser",
+  "version": "0.1.0",
+  "description": "Windows desktop S3 compatible object storage browser",
+  "author": "OSS Browser",
+  "private": true,
+  "type": "module",
+  "main": "out/main/main.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "clean:build": "node -e \"const fs=require('node:fs'); for (const dir of ['out','release']) fs.rmSync(dir,{recursive:true,force:true});\"",
+    "build": "npm run typecheck && electron-vite build",
+    "package:dir": "npm run clean:build && npm run build && electron-builder --win dir",
+    "package": "npm run build && electron-builder --win nsis",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write ."
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1042.0",
+    "@aws-sdk/lib-storage": "^3.1042.0",
+    "@aws-sdk/s3-request-presigner": "^3.1042.0",
+    "@smithy/node-http-handler": "^4.6.1",
+    "mime-types": "^3.0.1"
+  },
+  "devDependencies": {
+    "@ant-design/icons": "^6.0.0",
+    "@electron-toolkit/preload": "^3.0.2",
+    "@types/mime-types": "^3.0.1",
+    "@types/node": "^24.8.1",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "@vitejs/plugin-react": "^5.0.4",
+    "antd": "^5.27.6",
+    "dayjs": "^1.11.13",
+    "electron": "^38.3.0",
+    "electron-builder": "^26.0.12",
+    "electron-vite": "^4.0.0",
+    "eslint": "^9.38.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.0.0",
+    "globals": "^17.5.0",
+    "prettier": "^3.6.2",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.59.1",
+    "vite": "^7.1.12",
+    "zustand": "^5.0.8"
+  },
+  "build": {
+    "appId": "com.ossbrowser.desktop",
+    "productName": "OSS Browser",
+    "directories": {
+      "buildResources": "build",
+      "output": "release"
+    },
+    "asar": true,
+    "compression": "maximum",
+    "electronLanguages": [
+      "en-US",
+      "zh-CN"
+    ],
+    "icon": "build/icon.ico",
+    "files": [
+      "out/**/*",
+      "package.json",
+      "build/icon.ico",
+      "!**/*.map",
+      "!**/*.ts",
+      "!**/*.tsx",
+      "!**/.vite{,/**}",
+      "!**/{logs,log,cache,temp,tmp,coverage,tests,test,docs,doc,examples,example,mock,mocks,release}{,/**}",
+      "!**/*.{md,markdown}"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "OSS Browser"
+    }
+  }
+}

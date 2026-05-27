@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Build and packaging outputs
+out/
+release/
+dist/
+coverage/
+.vite/
+*.tsbuildinfo
+
+# Logs and runtime scratch files
+*.log
+logs/
+log/
+cache/
+tmp/
+temp/
+*.tmp
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+config.local.json
+
+# OS and editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
