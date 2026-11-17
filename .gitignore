@@ -1,7 +1,35 @@
-node_modules
-dist
-out
-release
+# Dependencies and generated output
+node_modules/
+dist/
+release/
+coverage/
+.vite/
+src-tauri/target/
+src-tauri/gen/
+
+# Logs and temporary files
 *.log
 *.tsbuildinfo
+logs/
+log/
+cache/
+tmp/
+temp/
+*.tmp
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+config.local.json
+*.pem
+*.key
+*.p12
+*.pfx
+
+# OS and editor files
 .DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/

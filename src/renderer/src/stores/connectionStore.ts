@@ -1,6 +1,7 @@
 import { create } from 'zustand';
-import type { BucketInfo, ConnectionConfig } from '@shared/types';
+import type { AppConfig, BucketInfo, ConnectionConfig } from '@shared/types';
 import { useAppStore } from './appStore';
+import { useObjectStore } from './objectStore';
 
 let bucketLoadRequestId = 0;
 
@@ -12,12 +13,12 @@ interface ConnectionState {
   connectionStatuses: Record<string, ConnectionRuntimeStatus>;
   clearBuckets: () => void;
   loadBuckets: (connectionId?: string) => Promise<void>;
-  saveConnection: (connection: ConnectionConfig) => Promise<void>;
+  saveConnection: (connection: ConnectionConfig) => Promise<AppConfig>;
   setConnectionStatus: (connectionId: string, status: ConnectionRuntimeStatus) => void;
   removeConnectionStatus: (connectionId: string) => void;
 }
 
-export const useConnectionStore = create<ConnectionState>((set) => ({
+export const useConnectionStore = create<ConnectionState>((set, get) => ({
   buckets: [],
   loading: false,
   connectionStatuses: {},
@@ -29,6 +30,10 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
     const activeConnectionId =
       connectionId ?? useAppStore.getState().config?.activeConnectionId ?? undefined;
     const requestId = ++bucketLoadRequestId;
+    if (!activeConnectionId) {
+      set({ buckets: [], loading: false });
+      return;
+    }
     set((state) => ({
       loading: true,
       connectionStatuses: activeConnectionId
@@ -36,7 +41,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
         : state.connectionStatuses
     }));
     try {
-      const buckets = await window.ossApi.listBuckets();
+      const buckets = await window.ossApi.listBuckets(activeConnectionId);
       if (requestId === bucketLoadRequestId) {
         set((state) => ({
           buckets,
@@ -62,7 +67,12 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
     }
   },
   saveConnection: async (connection) => {
-    await window.ossApi.saveConnection(connection);
+    const config = await window.ossApi.saveConnection(connection);
+    if (connection.id && connection.id === useAppStore.getState().config?.activeConnectionId) {
+      get().clearBuckets();
+      useObjectStore.getState().clearObjects();
+    }
+    return config;
   },
   setConnectionStatus: (connectionId, status) => {
     set((state) => ({
@@ -80,3 +90,15 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
     });
   }
 }));
+
+export function isCurrentConnection(
+  connection?: Pick<ConnectionConfig, 'id' | 'updatedAt'>
+): boolean {
+  const config = useAppStore.getState().config;
+  return Boolean(
+    connection &&
+    config?.activeConnectionId === connection.id &&
+    config.connections.find((current) => current.id === connection.id)?.updatedAt ===
+      connection.updatedAt
+  );
+}

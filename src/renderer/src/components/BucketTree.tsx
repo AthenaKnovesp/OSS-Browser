@@ -8,18 +8,9 @@ import {
   ReloadOutlined,
   SettingOutlined
 } from '@ant-design/icons';
-import {
-  Button,
-  Dropdown,
-  Empty,
-  Modal,
-  Space,
-  Spin,
-  Tree,
-  Typography,
-  message
-} from 'antd';
+import { App, Button, Dropdown, Empty, Space, Spin, Tree, Typography } from 'antd';
 import type { TreeDataNode } from 'antd';
+import { useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '@renderer/stores/appStore';
 import { useConnectionStore } from '@renderer/stores/connectionStore';
@@ -29,7 +20,10 @@ import { useI18n } from '@renderer/i18n';
 type SidebarTreeKey = `connection:${string}` | `bucket:${string}`;
 
 export function BucketTree(): React.JSX.Element {
+  const { message, modal } = App.useApp();
   const { t } = useI18n();
+  const connectionSwitchInFlightRef = useRef(false);
+  const [switchingConnectionId, setSwitchingConnectionId] = useState<string>();
   const {
     buckets,
     clearBuckets,
@@ -49,23 +43,16 @@ export function BucketTree(): React.JSX.Element {
       setConnectionStatus: state.setConnectionStatus
     }))
   );
-  const {
-    config,
-    setActiveActivity,
-    setConfig,
-    setEditingConnectionId,
-    setSettingsMode,
-    setSettingsOpen
-  } = useAppStore(
-    useShallow((state) => ({
-      config: state.config,
-      setActiveActivity: state.setActiveActivity,
-      setConfig: state.setConfig,
-      setEditingConnectionId: state.setEditingConnectionId,
-      setSettingsMode: state.setSettingsMode,
-      setSettingsOpen: state.setSettingsOpen
-    }))
-  );
+  const { config, setConfig, setEditingConnectionId, setSettingsMode, setSettingsOpen } =
+    useAppStore(
+      useShallow((state) => ({
+        config: state.config,
+        setConfig: state.setConfig,
+        setEditingConnectionId: state.setEditingConnectionId,
+        setSettingsMode: state.setSettingsMode,
+        setSettingsOpen: state.setSettingsOpen
+      }))
+    );
   const { currentBucket, clearObjects, setBucket, loadObjects } = useObjectStore(
     useShallow((state) => ({
       currentBucket: state.currentBucket,
@@ -80,6 +67,9 @@ export function BucketTree(): React.JSX.Element {
   );
 
   const handleConnectionChange = async (connectionId: string): Promise<void> => {
+    if (connectionSwitchInFlightRef.current) return;
+    connectionSwitchInFlightRef.current = true;
+    setSwitchingConnectionId(connectionId);
     if (activeConnection?.id && connectionStatuses[activeConnection.id] === 'connected') {
       setConnectionStatus(activeConnection.id, 'closed');
     }
@@ -91,13 +81,16 @@ export function BucketTree(): React.JSX.Element {
       await loadBuckets(connectionId);
     } catch (error) {
       if (error instanceof Error) message.error(error.message);
+    } finally {
+      connectionSwitchInFlightRef.current = false;
+      setSwitchingConnectionId(undefined);
     }
   };
 
   const handleBucketChange = async (bucket: string): Promise<void> => {
+    if (connectionSwitchInFlightRef.current) return;
     try {
       setBucket(bucket, activeConnection?.id);
-      setActiveActivity('explorer');
       await loadObjects(bucket, '', activeConnection?.id);
     } catch (error) {
       if (error instanceof Error) message.error(error.message);
@@ -128,7 +121,7 @@ export function BucketTree(): React.JSX.Element {
 
   const deleteConnection = (connectionId: string): void => {
     const connection = connections.find((item) => item.id === connectionId);
-    Modal.confirm({
+    modal.confirm({
       title: t('sidebar.deleteConnectionTitle'),
       centered: true,
       content: connection?.profileName,
@@ -164,10 +157,7 @@ export function BucketTree(): React.JSX.Element {
       ),
       title: (
         <div className="connection-tree-row">
-          <Typography.Text
-            className="connection-tree-label"
-            title={connection.profileName}
-          >
+          <Typography.Text className="connection-tree-label" title={connection.profileName}>
             {connection.profileName}
           </Typography.Text>
           <Dropdown
@@ -244,6 +234,7 @@ export function BucketTree(): React.JSX.Element {
             icon={<ReloadOutlined />}
             title={t('sidebar.refreshBuckets')}
             aria-label={t('sidebar.refreshBuckets')}
+            disabled={Boolean(switchingConnectionId)}
             onClick={() => {
               if (!activeConnection) {
                 message.warning(t('sidebar.selectConnectionFirst'));
@@ -256,10 +247,11 @@ export function BucketTree(): React.JSX.Element {
       </div>
       <div className="connection-tree-panel">
         {connections.length > 0 ? (
-          <Spin spinning={loading}>
+          <Spin spinning={loading || Boolean(switchingConnectionId)}>
             <Tree
               blockNode
               showIcon
+              disabled={Boolean(switchingConnectionId)}
               className="connection-tree"
               treeData={treeData}
               selectedKeys={selectedKeys}

@@ -1,4 +1,4 @@
-import type { AppConfig, AppearanceSettings, SecuritySettings, TransferSettings } from './types';
+import type { AppearanceSettings, SecuritySettings, TransferSettings } from './types';
 
 export const DEFAULT_TRANSFER_SETTINGS: TransferSettings = {
   defaultDownloadFolder: '',
@@ -18,12 +18,4 @@ export const DEFAULT_APPEARANCE_SETTINGS: AppearanceSettings = {
   language: 'system',
   disableHardwareAcceleration: false,
   disableGpuShaderDiskCache: false
-};
-
-export const DEFAULT_APP_CONFIG: AppConfig = {
-  connections: [],
-  compactMode: false,
-  transferSettings: DEFAULT_TRANSFER_SETTINGS,
-  securitySettings: DEFAULT_SECURITY_SETTINGS,
-  appearanceSettings: DEFAULT_APPEARANCE_SETTINGS
 };

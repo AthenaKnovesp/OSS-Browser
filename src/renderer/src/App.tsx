@@ -1,4 +1,4 @@
-import { ConfigProvider, App as AntApp, message, theme } from 'antd';
+import { ConfigProvider, App as AntApp, theme } from 'antd';
 import enUS from 'antd/locale/en_US';
 import zhCN from 'antd/locale/zh_CN';
 import dayjs from 'dayjs';
@@ -10,34 +10,32 @@ import { useAppStore } from './stores/appStore';
 import { useLogStore } from './stores/logStore';
 import { useObjectStore } from './stores/objectStore';
 import { useTaskStore } from './stores/taskStore';
+import { createTrailingDebounce } from './utils/trailingDebounce';
 import type { LogEntry } from '@shared/types';
-import {
-  resolveLanguagePreference,
-  setI18nLanguage,
-  translate
-} from '@shared/i18n';
+import { resolveLanguagePreference, translate } from '@shared/i18n';
 import './styles.css';
 
 export default function RootApp(): React.JSX.Element {
   if (!window.ossApi) {
-    return <PreloadError />;
+    return <DesktopApiError />;
   }
 
   return <BootstrappedApp />;
 }
 
-function PreloadError(): React.JSX.Element {
+function DesktopApiError(): React.JSX.Element {
   const language = resolveLanguagePreference('system', navigator.language);
   return (
-    <div className="preload-error">
+    <div className="desktop-api-error">
       <h1>OSS Browser</h1>
-      <p>{translate(language, 'app.preloadMissing')}</p>
-      <p>{translate(language, 'app.preloadHelp')}</p>
+      <p>{translate(language, 'app.desktopApiMissing')}</p>
+      <p>{translate(language, 'app.desktopApiHelp')}</p>
     </div>
   );
 }
 
-function BootstrappedApp(): React.JSX.Element {
+function AppContent(): React.JSX.Element {
+  const { message } = AntApp.useApp();
   const { config, setConfig } = useAppStore(
     useShallow((state) => ({
       config: state.config,
@@ -57,22 +55,39 @@ function BootstrappedApp(): React.JSX.Element {
     }))
   );
   const [bootReady, setBootReady] = useState(false);
-  const language = resolveLanguagePreference(config?.appearanceSettings.language, navigator.language);
-  const antdLocale = language === 'zh-CN' ? zhCN : enUS;
+  const language = resolveLanguagePreference(
+    config?.appearanceSettings.language,
+    navigator.language
+  );
 
   useEffect(() => {
     let canceled = false;
-    void Promise.all([
-      window.ossApi.getConfig().then(setConfig),
-      loadLogs(),
-      loadTasks()
-    ])
+    let pendingObjectRefresh: { connectionId: string; bucket: string; prefix: string } | undefined;
+    const objectRefreshDebounce = createTrailingDebounce(() => {
+      const current = useObjectStore.getState();
+      if (
+        !pendingObjectRefresh ||
+        current.currentConnectionId !== pendingObjectRefresh.connectionId ||
+        current.currentBucket !== pendingObjectRefresh.bucket ||
+        current.currentPrefix !== pendingObjectRefresh.prefix
+      ) {
+        return;
+      }
+      void current
+        .loadObjects(
+          pendingObjectRefresh.bucket,
+          pendingObjectRefresh.prefix,
+          pendingObjectRefresh.connectionId
+        )
+        .catch((error) => message.error(error.message));
+    }, 300);
+    void Promise.all([window.ossApi.getConfig().then(setConfig), loadLogs(), loadTasks()])
       .catch((error) => message.error(error.message))
       .finally(() => {
         if (!canceled) {
           setBootReady(true);
         }
-    });
+      });
     const offLog = window.ossApi.onLogAdded(addLog);
     const offTask = window.ossApi.onTaskUpdated((task) => {
       upsertTask(task);
@@ -80,28 +95,32 @@ function BootstrappedApp(): React.JSX.Element {
         (task.status === 'success' || task.status === 'partial_success') &&
         ['upload', 'delete', 'copy', 'move', 'rename'].includes(task.type)
       ) {
-        const { currentBucket, currentConnectionId, currentPrefix, loadObjects } =
-          useObjectStore.getState();
+        const { currentBucket, currentConnectionId, currentPrefix } = useObjectStore.getState();
         if (
           currentBucket &&
+          currentConnectionId &&
           task.connectionId === currentConnectionId &&
-          (task.source.startsWith(`${currentBucket}/`) || task.target.startsWith(`${currentBucket}/`))
+          (task.source.startsWith(`${currentBucket}/`) ||
+            task.target.startsWith(`${currentBucket}/`))
         ) {
-          void loadObjects(currentBucket, currentPrefix, currentConnectionId).catch((error) =>
-            message.error(error.message)
-          );
+          pendingObjectRefresh = {
+            connectionId: currentConnectionId,
+            bucket: currentBucket,
+            prefix: currentPrefix
+          };
+          objectRefreshDebounce.schedule();
         }
       }
     });
     return () => {
       canceled = true;
+      objectRefreshDebounce.cancel();
       offLog();
       offTask();
     };
-  }, [addLog, loadLogs, loadTasks, setConfig, upsertTask]);
+  }, [addLog, loadLogs, loadTasks, setConfig, upsertTask, message]);
 
   useEffect(() => {
-    setI18nLanguage(language);
     dayjs.locale(language === 'zh-CN' ? 'zh-cn' : 'en');
   }, [language]);
 
@@ -121,7 +140,10 @@ function BootstrappedApp(): React.JSX.Element {
         ? `${event.filename}:${event.lineno}:${event.colno}`
         : undefined;
       const detail = [stringifyErrorDetail(event.error), location].filter(Boolean).join('\n');
-      addRendererError(event.message || translate(language, 'app.rendererError'), detail || undefined);
+      addRendererError(
+        event.message || translate(language, 'app.rendererError'),
+        detail || undefined
+      );
     };
     const onUnhandledRejection = (event: PromiseRejectionEvent): void => {
       const reason = event.reason;
@@ -139,9 +161,21 @@ function BootstrappedApp(): React.JSX.Element {
     };
   }, [addLog, language]);
 
+  return bootReady ? <MainLayout /> : <div className="app-boot-screen" />;
+}
+
+function BootstrappedApp(): React.JSX.Element {
+  const config = useAppStore((state) => state.config);
+  const language = resolveLanguagePreference(
+    config?.appearanceSettings.language,
+    navigator.language
+  );
+  const antdLocale = language === 'zh-CN' ? zhCN : enUS;
+
   return (
     <ConfigProvider
       locale={antdLocale}
+      csp={{ nonce: document.querySelector<HTMLStyleElement>('style[nonce]')?.nonce }}
       theme={{
         algorithm: theme.defaultAlgorithm,
         token: {
@@ -192,7 +226,7 @@ function BootstrappedApp(): React.JSX.Element {
       }}
     >
       <AntApp>
-        {bootReady ? <MainLayout /> : <div className="app-boot-screen" />}
+        <AppContent />
       </AntApp>
     </ConfigProvider>
   );
@@ -209,4 +243,3 @@ function stringifyErrorDetail(error: unknown): LogEntry['detail'] {
     return String(error);
   }
 }
-

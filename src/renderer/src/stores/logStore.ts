@@ -16,6 +16,8 @@ const LOG_UPDATE_BATCH_MS = 100;
 export const useLogStore = create<LogState>((set) => {
   let pendingLogs: LogEntry[] = [];
   let flushTimer: ReturnType<typeof setTimeout> | undefined;
+  let snapshotRequestId = 0;
+  let loadingSnapshot = false;
 
   const flushPendingLogs = (): void => {
     if (flushTimer) {
@@ -41,39 +43,52 @@ export const useLogStore = create<LogState>((set) => {
   return {
     logs: [],
     loadLogs: async () => {
-      pendingLogs = [];
+      const requestId = ++snapshotRequestId;
+      loadingSnapshot = true;
       if (flushTimer) {
         clearTimeout(flushTimer);
         flushTimer = undefined;
       }
-      const logs = await window.ossApi.listLogs();
-      set({ logs: trimLogs(logs) });
+      try {
+        const logs = await window.ossApi.listLogs();
+        if (requestId !== snapshotRequestId) return;
+        set({ logs: appendLogs(logs, pendingLogs) });
+        pendingLogs = [];
+      } finally {
+        if (requestId === snapshotRequestId) {
+          loadingSnapshot = false;
+          if (pendingLogs.length > 0) scheduleFlush();
+        }
+      }
     },
     addLog: (log) => {
       pendingLogs.push(log);
-      scheduleFlush();
+      if (!loadingSnapshot) scheduleFlush();
     },
     clearLogs: async () => {
-      pendingLogs = [];
-      if (flushTimer) {
-        clearTimeout(flushTimer);
-        flushTimer = undefined;
+      const requestId = ++snapshotRequestId;
+      flushPendingLogs();
+      loadingSnapshot = true;
+      try {
+        await window.ossApi.clearLogs();
+        if (requestId !== snapshotRequestId) return;
+        set({ logs: appendLogs([], pendingLogs) });
+        pendingLogs = [];
+      } finally {
+        if (requestId === snapshotRequestId) {
+          loadingSnapshot = false;
+          if (pendingLogs.length > 0) scheduleFlush();
+        }
       }
-      await window.ossApi.clearLogs();
-      set({ logs: [] });
     },
     setLevel: (level) => set({ level })
   };
 });
 
 function appendLogs(currentLogs: LogEntry[], nextLogs: LogEntry[]): LogEntry[] {
-  if (nextLogs.length >= MAX_RENDERER_LOGS) {
-    return nextLogs.slice(-MAX_RENDERER_LOGS);
-  }
-  const keptCurrentLogs = currentLogs.slice(
-    Math.max(0, currentLogs.length + nextLogs.length - MAX_RENDERER_LOGS)
-  );
-  return [...keptCurrentLogs, ...nextLogs];
+  const logs = new Map(currentLogs.map((log) => [log.id, log]));
+  for (const log of nextLogs) logs.set(log.id, log);
+  return trimLogs([...logs.values()]);
 }
 
 function trimLogs(logs: LogEntry[]): LogEntry[] {

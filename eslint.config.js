@@ -6,7 +6,7 @@ import tseslint from 'typescript-eslint';
 
 export default [
   {
-    ignores: ['out', 'dist', 'release', 'node_modules']
+    ignores: ['out', 'dist', 'release', 'node_modules', 'src-tauri/target', 'src-tauri/gen']
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -28,5 +28,6 @@ export default [
       'no-undef': 'off'
     }
   },
+  { files: ['scripts/*.mjs'], languageOptions: { globals: globals.node } },
   prettier
 ];

@@ -16,13 +16,11 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "types": ["node", "react", "react-dom"],
-    "baseUrl": ".",
     "paths": {
-      "@shared/*": ["src/shared/*"],
-      "@renderer/*": ["src/renderer/src/*"],
-      "@main/*": ["src/main/*"]
+      "@shared/*": ["./src/shared/*"],
+      "@renderer/*": ["./src/renderer/src/*"]
     }
   },
-  "include": ["src", "electron.vite.config.ts", "eslint.config.js"],
+  "include": ["src", "vite.config.ts", "eslint.config.js"],
   "references": []
 }

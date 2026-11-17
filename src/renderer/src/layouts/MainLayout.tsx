@@ -1,22 +1,17 @@
-import { Layout, Modal } from 'antd';
-import { lazy, memo, Suspense, useCallback, useMemo, useRef, useState } from 'react';
+import { App, Layout, Modal } from 'antd';
+import { lazy, memo, Suspense, useCallback, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { Sidebar } from './Sidebar';
+import { BucketTree } from '@renderer/components/BucketTree';
 import { TitleBar } from './TitleBar';
 import { ConnectionForm } from '@renderer/components/ConnectionForm';
 import { TaskTable } from '@renderer/components/TaskTable';
 import { useI18n } from '@renderer/i18n';
 import { useAppStore } from '@renderer/stores/appStore';
+import { useConnectionStore } from '@renderer/stores/connectionStore';
 import { useTaskStore } from '@renderer/stores/taskStore';
 
 const ExplorerPage = lazy(() =>
   import('@renderer/pages/ExplorerPage').then((module) => ({ default: module.ExplorerPage }))
-);
-const SearchPage = lazy(() =>
-  import('@renderer/pages/SearchPage').then((module) => ({ default: module.SearchPage }))
-);
-const TasksPage = lazy(() =>
-  import('@renderer/pages/TasksPage').then((module) => ({ default: module.TasksPage }))
 );
 
 const MIN_BOTTOM_PANEL_HEIGHT = 168;
@@ -24,9 +19,9 @@ const DEFAULT_BOTTOM_PANEL_HEIGHT = 220;
 const MIN_WORKBENCH_HEIGHT = 260;
 
 export function MainLayout(): React.JSX.Element {
+  const { message } = App.useApp();
   const { t } = useI18n();
   const {
-    activeActivity,
     config,
     editingConnectionId,
     settingsMode,
@@ -36,7 +31,6 @@ export function MainLayout(): React.JSX.Element {
     setSettingsOpen
   } = useAppStore(
     useShallow((state) => ({
-      activeActivity: state.activeActivity,
       config: state.config,
       editingConnectionId: state.editingConnectionId,
       settingsMode: state.settingsMode,
@@ -50,13 +44,28 @@ export function MainLayout(): React.JSX.Element {
   const footerRef = useRef<HTMLElement>(null);
   const [bottomPanelHeight, setBottomPanelHeight] = useState(DEFAULT_BOTTOM_PANEL_HEIGHT);
 
+  const bottomPanelMaxHeight = useCallback((): number => {
+    const workspaceHeight =
+      workspaceRef.current?.getBoundingClientRect().height ?? window.innerHeight - 52;
+    return Math.max(
+      MIN_BOTTOM_PANEL_HEIGHT,
+      Math.floor(Math.min(workspaceHeight * 0.48, workspaceHeight - MIN_WORKBENCH_HEIGHT - 12))
+    );
+  }, []);
+
   const handleSettingsSaved = useCallback(
     (nextConfig: NonNullable<typeof config>): void => {
       setConfig(nextConfig);
       setSettingsOpen(false);
       setEditingConnectionId(undefined);
+      if (settingsMode === 'connection' && editingConnectionId === nextConfig.activeConnectionId) {
+        void useConnectionStore
+          .getState()
+          .loadBuckets(nextConfig.activeConnectionId)
+          .catch((error) => message.error(error.message));
+      }
     },
-    [setConfig, setEditingConnectionId, setSettingsOpen]
+    [editingConnectionId, settingsMode, setConfig, setEditingConnectionId, setSettingsOpen, message]
   );
 
   const handleSettingsCancel = useCallback((): void => {
@@ -64,11 +73,8 @@ export function MainLayout(): React.JSX.Element {
     setEditingConnectionId(undefined);
   }, [setEditingConnectionId, setSettingsOpen]);
 
-  const page = useMemo(() => {
-    if (activeActivity === 'search') return <SearchPage />;
-    if (activeActivity === 'tasks') return <TasksPage />;
-    return <ExplorerPage />;
-  }, [activeActivity]);
+  const connection = config?.connections.find((item) => item.id === config.activeConnectionId);
+  const explorerKey = `${connection?.id ?? 'no-connection'}:${connection?.updatedAt ?? ''}`;
 
   const beginBottomPanelResize = useCallback(
     (event: React.PointerEvent<HTMLDivElement>): void => {
@@ -77,12 +83,7 @@ export function MainLayout(): React.JSX.Element {
 
       const startY = event.clientY;
       const startHeight = bottomPanelHeight;
-      const workspaceHeight =
-        workspaceRef.current?.getBoundingClientRect().height ?? window.innerHeight - 52;
-      const maxHeight = Math.max(
-        MIN_BOTTOM_PANEL_HEIGHT,
-        Math.min(workspaceHeight * 0.48, workspaceHeight - MIN_WORKBENCH_HEIGHT - 12)
-      );
+      const maxHeight = bottomPanelMaxHeight();
       let nextHeight = startHeight;
       let frameId: number | undefined;
       const applyFooterHeight = (height: number): void => {
@@ -123,7 +124,23 @@ export function MainLayout(): React.JSX.Element {
       window.addEventListener('pointerup', onPointerUp, { once: true });
       window.addEventListener('pointercancel', onPointerUp, { once: true });
     },
-    [bottomPanelHeight]
+    [bottomPanelHeight, bottomPanelMaxHeight]
+  );
+
+  const resizeBottomPanelWithKeyboard = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>): void => {
+      let nextHeight: number | undefined;
+      if (event.key === 'ArrowUp') nextHeight = bottomPanelHeight + 20;
+      if (event.key === 'ArrowDown') nextHeight = bottomPanelHeight - 20;
+      if (event.key === 'Home') nextHeight = MIN_BOTTOM_PANEL_HEIGHT;
+      if (event.key === 'End') nextHeight = bottomPanelMaxHeight();
+      if (nextHeight === undefined) return;
+      event.preventDefault();
+      setBottomPanelHeight(
+        Math.min(Math.max(nextHeight, MIN_BOTTOM_PANEL_HEIGHT), bottomPanelMaxHeight())
+      );
+    },
+    [bottomPanelHeight, bottomPanelMaxHeight]
   );
 
   return (
@@ -133,17 +150,29 @@ export function MainLayout(): React.JSX.Element {
       </Layout.Header>
       <Layout className="app-body">
         <Layout.Sider className="resource-sider" width={300}>
-          <Sidebar />
+          <aside className="sidebar">
+            <BucketTree />
+          </aside>
         </Layout.Sider>
         <Layout className="main-workspace" ref={workspaceRef}>
           <Layout.Content className="workbench">
-            <Suspense fallback={<div className="page-loading" />}>{page}</Suspense>
+            <Suspense fallback={<div className="page-loading" />}>
+              <ExplorerPage key={explorerKey} />
+            </Suspense>
           </Layout.Content>
           <div
             className="workspace-resizer"
             role="separator"
+            tabIndex={0}
             aria-orientation="horizontal"
-            aria-label="Resize bottom panel"
+            aria-label={t('layout.resizeBottomPanel')}
+            aria-valuemin={MIN_BOTTOM_PANEL_HEIGHT}
+            aria-valuemax={Math.max(
+              MIN_BOTTOM_PANEL_HEIGHT,
+              Math.floor((window.innerHeight - 52) * 0.48)
+            )}
+            aria-valuenow={bottomPanelHeight}
+            onKeyDown={resizeBottomPanelWithKeyboard}
             onPointerDown={beginBottomPanelResize}
           >
             <span />
@@ -173,7 +202,7 @@ export function MainLayout(): React.JSX.Element {
         centered
         closable
         keyboard
-        maskClosable
+        mask={{ closable: true }}
         destroyOnHidden
         onCancel={handleSettingsCancel}
       >
@@ -198,5 +227,5 @@ const BottomTaskPanel = memo(function BottomTaskPanel(): React.JSX.Element {
     void window.ossApi.retryTask(task.id);
   }, []);
 
-  return <TaskTable compact tasks={tasks} onCancel={cancelTask} onRetry={retryTask} />;
+  return <TaskTable tasks={tasks} onCancel={cancelTask} onRetry={retryTask} />;
 });

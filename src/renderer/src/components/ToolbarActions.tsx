@@ -50,23 +50,31 @@ export function ToolbarActions({
 
   return (
     <Space className="toolbar-actions" size={6}>
-      <Dropdown.Button
-        className="toolbar-upload-button"
-        type="primary"
-        icon={<CloudUploadOutlined />}
-        disabled={disabled}
-        menu={{
-          items: [{ key: 'folder', icon: <FolderOpenOutlined />, label: t('toolbar.uploadFolder') }],
-          onClick: ({ key }) => {
-            if (key === 'folder') {
-              onUploadFolder();
+      <Space.Compact className="toolbar-upload-button">
+        <Button type="primary" disabled={disabled} onClick={onUpload}>
+          {t('toolbar.uploadFile')}
+        </Button>
+        <Dropdown
+          disabled={disabled}
+          menu={{
+            items: [
+              { key: 'folder', icon: <FolderOpenOutlined />, label: t('toolbar.uploadFolder') }
+            ],
+            onClick: ({ key }) => {
+              if (key === 'folder') {
+                onUploadFolder();
+              }
             }
-          }
-        }}
-        onClick={onUpload}
-      >
-        {t('toolbar.uploadFile')}
-      </Dropdown.Button>
+          }}
+        >
+          <Button
+            type="primary"
+            disabled={disabled}
+            icon={<CloudUploadOutlined />}
+            aria-label={t('toolbar.uploadFolder')}
+          />
+        </Dropdown>
+      </Space.Compact>
       <Button icon={<FolderAddOutlined />} disabled={disabled} onClick={onNewFolder}>
         {t('toolbar.newFolder')}
       </Button>
@@ -84,8 +92,18 @@ export function ToolbarActions({
         disabled={disabled}
         menu={{
           items: [
-            { key: 'copy', icon: <CopyOutlined />, label: t('toolbar.copyTo'), disabled: !hasSelection },
-            { key: 'move', icon: <SwapOutlined />, label: t('toolbar.moveTo'), disabled: !hasSelection },
+            {
+              key: 'copy',
+              icon: <CopyOutlined />,
+              label: t('toolbar.copyTo'),
+              disabled: !hasSelection
+            },
+            {
+              key: 'move',
+              icon: <SwapOutlined />,
+              label: t('toolbar.moveTo'),
+              disabled: !hasSelection
+            },
             {
               key: 'rename',
               icon: <EditOutlined />,

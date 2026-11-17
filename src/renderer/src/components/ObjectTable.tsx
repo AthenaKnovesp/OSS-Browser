@@ -29,13 +29,10 @@ interface Props {
   objects: ObjectItem[];
   loading: boolean;
   loadingMore: boolean;
-  loadingAll: boolean;
   hasMoreObjects: boolean;
   selectedObjects: ObjectItem[];
   searchTerm: string;
   onLoadMore: () => void;
-  onLoadAll: () => void;
-  onCancelLoadAll: () => void;
   onSelect: (object: ObjectItem) => void;
   onMultiSelect: (objects: ObjectItem[]) => void;
   onOpenFolder: (object: ObjectItem) => void;
@@ -53,13 +50,10 @@ function ObjectTableComponent({
   objects,
   loading,
   loadingMore,
-  loadingAll,
   hasMoreObjects,
   selectedObjects,
   searchTerm,
   onLoadMore,
-  onLoadAll,
-  onCancelLoadAll,
   onSelect,
   onMultiSelect,
   onOpenFolder,
@@ -76,13 +70,9 @@ function ObjectTableComponent({
   const shellRef = useRef<HTMLDivElement>(null);
   const [tableBodyHeight, setTableBodyHeight] = useState(420);
   const deferredSearchTerm = useDeferredValue(searchTerm);
-  const hasFooter = hasMoreObjects || loadingMore || loadingAll;
-  const isTableBusy = loading || loadingMore || loadingAll;
-  const loadingMessage = loadingAll
-    ? t('object.loadingAll')
-    : loadingMore
-      ? t('object.loadingMore')
-      : t('object.loading');
+  const hasFooter = hasMoreObjects || loadingMore;
+  const isTableBusy = loading || loadingMore;
+  const loadingMessage = loadingMore ? t('object.loadingMore') : t('object.loading');
 
   useLayoutEffect(() => {
     const shell = shellRef.current;
@@ -148,7 +138,12 @@ function ObjectTableComponent({
                     label: t('object.copyUrl'),
                     disabled: record.isFolder
                   },
-                  { key: 'delete', icon: <DeleteOutlined />, label: t('common.delete'), danger: true }
+                  {
+                    key: 'delete',
+                    icon: <DeleteOutlined />,
+                    label: t('common.delete'),
+                    danger: true
+                  }
                 ],
                 onClick: ({ key }) => {
                   onSelect(record);
@@ -191,14 +186,13 @@ function ObjectTableComponent({
         width: 180,
         ellipsis: true,
         dataIndex: 'type',
-        shouldCellUpdate: (record, previousRecord) => record.type !== previousRecord.type,
         render: (value: string) => {
           const displayValue = value === 'Folder' ? t('common.folder') : value;
           return (
-          <span className="ellipsis-text" title={displayValue}>
-            {displayValue}
-          </span>
-        );
+            <span className="ellipsis-text" title={displayValue}>
+              {displayValue}
+            </span>
+          );
         }
       },
       {
@@ -281,6 +275,7 @@ function ObjectTableComponent({
           )
         }}
         onRow={(record) => ({
+          tabIndex: record.isFolder ? 0 : undefined,
           onClick: () => onSelect(record),
           onDoubleClick: () => {
             if (record.isFolder) {
@@ -289,55 +284,36 @@ function ObjectTableComponent({
           },
           onContextMenu: () => {
             onSelect(record);
+          },
+          onKeyDown: (event) => {
+            if (record.isFolder && event.key === 'Enter') {
+              event.preventDefault();
+              onOpenFolder(record);
+            }
           }
         })}
       />
       {isTableBusy ? (
         <div className="object-table-loading-mask" aria-live="polite">
-          <Space direction="vertical" align="center" size={10}>
+          <Space orientation="vertical" align="center" size={10}>
             <Spin size="large" />
             <Typography.Text type="secondary">{loadingMessage}</Typography.Text>
-            {loadingAll ? (
-              <Button
-                className="object-table-cancel-load-button"
-                type="primary"
-                size="small"
-                onClick={onCancelLoadAll}
-              >
-                {t('object.cancelLoadAll')}
-              </Button>
-            ) : null}
           </Space>
         </div>
       ) : null}
       {hasFooter ? (
         <div className="object-table-footer">
           <Typography.Text type="secondary">
-            {t('object.loadedCount', {
-              count: objects.length,
-              suffix: loadingAll ? t('object.loadingAllSuffix') : ''
-            })}
+            {t('object.loadedCount', { count: objects.length, suffix: '' })}
           </Typography.Text>
-          {!loadingAll ? (
-            <Space size={8}>
-              <Dropdown.Button
-                size="small"
-                loading={loadingMore}
-                disabled={!hasMoreObjects}
-                onClick={onLoadMore}
-                menu={{
-                  items: [{ key: 'loadAll', label: t('object.loadAll'), disabled: loadingMore }],
-                  onClick: ({ key }) => {
-                    if (key === 'loadAll') {
-                      onLoadAll();
-                    }
-                  }
-                }}
-              >
-                {t('object.loadMore')}
-              </Dropdown.Button>
-            </Space>
-          ) : null}
+          <Button
+            size="small"
+            loading={loadingMore}
+            disabled={!hasMoreObjects}
+            onClick={onLoadMore}
+          >
+            {t('object.loadMore')}
+          </Button>
         </div>
       ) : null}
     </div>

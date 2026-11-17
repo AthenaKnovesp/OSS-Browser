@@ -47,7 +47,7 @@ function ObjectDetailsComponent({
     if (object) {
       return [
         [t('object.name'), object.name],
-        ['Bucket', object.bucket],
+        [t('object.bucket'), object.bucket],
         [t('object.prefix'), object.prefix || '/'],
         [t('object.path'), object.key],
         [t('object.keyLength'), `${object.key.length}`],
@@ -57,21 +57,25 @@ function ObjectDetailsComponent({
         [t('object.storageClass'), object.storageClass ?? '-'],
         [t('object.lastModified'), formatDate(object.lastModified)],
         [t('object.folder'), object.isFolder ? t('common.yes') : t('common.no')],
-        ['S3 URI', `s3://${object.bucket}/${object.key}`],
-        ['URL', object.url ?? `s3://${object.bucket}/${object.key}`]
+        [t('object.s3Uri'), `s3://${object.bucket}/${object.key}`],
+        [t('object.url'), object.url ?? `s3://${object.bucket}/${object.key}`]
       ];
     }
 
     return [
-      ['Bucket', bucketName ?? '-'],
-      ['Connection', connectionName ?? '-'],
-      ['Endpoint', endpoint ?? '-'],
-      ['Region', region ?? '-']
+      [t('object.bucket'), bucketName ?? '-'],
+      [t('object.connection'), connectionName ?? '-'],
+      [t('object.endpoint'), endpoint ?? '-'],
+      [t('object.region'), region ?? '-']
     ];
   }, [bucketName, connectionName, endpoint, object, region, t]);
 
-  const title = object?.name ?? bucketName ?? 'Bucket';
-  const kind = object ? (object.isFolder ? t('common.folder') : t('common.object')) : 'Bucket';
+  const title = object?.name ?? bucketName ?? t('object.bucket');
+  const kind = object
+    ? object.isFolder
+      ? t('common.folder')
+      : t('common.object')
+    : t('object.bucket');
   const kindColor: SemanticTagColor = object?.isFolder ? 'warning' : 'processing';
   return (
     <div className="object-details">
@@ -99,9 +103,14 @@ function ObjectDetailsComponent({
         }))}
       />
       {object && showActions ? (
-        <Space direction="vertical" className="details-actions">
+        <Space orientation="vertical" className="details-actions">
           <Space.Compact block>
-            <Button block icon={<CloudDownloadOutlined />} disabled={object.isFolder} onClick={onDownload}>
+            <Button
+              block
+              icon={<CloudDownloadOutlined />}
+              disabled={object.isFolder}
+              onClick={onDownload}
+            >
               {t('common.download')}
             </Button>
             <Button block icon={<CopyOutlined />} onClick={onCopyPath}>
@@ -139,4 +148,3 @@ function detailText(value: string): React.JSX.Element {
     </Typography.Text>
   );
 }
-

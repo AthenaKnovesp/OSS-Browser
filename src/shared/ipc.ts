@@ -52,10 +52,9 @@ export const IPC_CHANNELS = {
   LOG_LIST: 'log:list',
   LOG_CLEAR: 'log:clear',
   LOG_ADDED: 'log:added',
-  APP_GET_DIAGNOSTICS: 'app:get-diagnostics'
+  APP_GET_DIAGNOSTICS: 'app:get-diagnostics',
+  APP_EXPORT_DIAGNOSTICS: 'app:export-diagnostics'
 } as const;
-
-export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
 
 export interface OssApi {
   windowMinimize: () => Promise<void>;
@@ -71,27 +70,30 @@ export interface OssApi {
   setActiveConnection: (connectionId: string) => Promise<AppConfig>;
   saveSettings: (config: Partial<AppConfig>) => Promise<AppConfig>;
   testConnection: (connection: ConnectionConfig) => Promise<TestConnectionResult>;
-  listBuckets: () => Promise<BucketInfo[]>;
+  listBuckets: (connectionId: string) => Promise<BucketInfo[]>;
   listObjects: (
+    connectionId: string,
     bucket: string,
     prefix: string,
     continuationToken?: string,
     maxKeys?: number
   ) => Promise<ObjectListResult>;
   listObjectsFlat: (
+    connectionId: string,
     bucket: string,
     prefix: string,
     continuationToken?: string,
     maxKeys?: number
   ) => Promise<ObjectListResult>;
   listFolders: (
+    connectionId: string,
     bucket: string,
     prefix: string,
     continuationToken?: string
   ) => Promise<ObjectListResult>;
-  createFolder: (bucket: string, prefix: string) => Promise<void>;
-  getObjectMetadata: (bucket: string, key: string) => Promise<ObjectMetadata>;
-  generateObjectUrl: (bucket: string, key: string) => Promise<string>;
+  createFolder: (connectionId: string, bucket: string, prefix: string) => Promise<void>;
+  getObjectMetadata: (connectionId: string, bucket: string, key: string) => Promise<ObjectMetadata>;
+  generateObjectUrl: (connectionId: string, bucket: string, key: string) => Promise<string>;
   uploadObjects: (request: UploadRequest) => Promise<TaskItem[]>;
   downloadObject: (request: DownloadRequest) => Promise<TaskItem>;
   deleteObject: (request: DeleteRequest) => Promise<TaskItem>;
@@ -105,6 +107,7 @@ export interface OssApi {
   listLogs: () => Promise<LogEntry[]>;
   clearLogs: () => Promise<void>;
   getDiagnostics: () => Promise<AppDiagnostics>;
+  exportDiagnostics: () => Promise<string | undefined>;
   onTaskUpdated: (listener: (task: TaskItem) => void) => () => void;
   onLogAdded: (listener: (log: LogEntry) => void) => () => void;
   onWindowMaximizedChanged: (listener: (maximized: boolean) => void) => () => void;

@@ -1,6 +1,7 @@
 import { HomeOutlined } from '@ant-design/icons';
 import { Breadcrumb, Button } from 'antd';
 import { breadcrumbParts } from '@renderer/utils/objectKey';
+import { useI18n } from '@renderer/i18n';
 
 interface Props {
   prefix: string;
@@ -8,6 +9,7 @@ interface Props {
 }
 
 export function BreadcrumbPath({ prefix, onNavigate }: Props): React.JSX.Element {
+  const { t } = useI18n();
   const parts = breadcrumbParts(prefix);
 
   return (
@@ -23,6 +25,8 @@ export function BreadcrumbPath({ prefix, onNavigate }: Props): React.JSX.Element
                   size="small"
                   type="text"
                   icon={<HomeOutlined />}
+                  title={t('breadcrumb.home')}
+                  aria-label={t('breadcrumb.home')}
                   onClick={() => onNavigate('')}
                 />
               )
@@ -33,6 +37,7 @@ export function BreadcrumbPath({ prefix, onNavigate }: Props): React.JSX.Element
                   className="breadcrumb-button breadcrumb-text"
                   size="small"
                   type="text"
+                  aria-label={t('breadcrumb.navigateTo', { name: part.label })}
                   onClick={() => onNavigate(part.prefix)}
                 >
                   <span className="breadcrumb-tooltip-text" title={part.label}>
@@ -47,4 +52,3 @@ export function BreadcrumbPath({ prefix, onNavigate }: Props): React.JSX.Element
     </div>
   );
 }
-

@@ -1,20 +1,13 @@
-import {
-  ArrowDownOutlined,
-  DatabaseOutlined,
-  FolderOutlined,
-  LoadingOutlined,
-  SearchOutlined
-} from '@ant-design/icons';
-import { App, Input, Modal, Space, Tree, Typography, message } from 'antd';
-import type { TreeDataNode, TreeProps } from 'antd';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowDownOutlined, SearchOutlined } from '@ant-design/icons';
+import { App, Input, Modal, Select, Space, Typography } from 'antd';
+import { useCallback, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { BreadcrumbPath } from '@renderer/components/BreadcrumbPath';
 import { ObjectDetails } from '@renderer/components/ObjectDetails';
 import { ObjectTable } from '@renderer/components/ObjectTable';
 import { ToolbarActions } from '@renderer/components/ToolbarActions';
 import { useAppStore } from '@renderer/stores/appStore';
-import { useConnectionStore } from '@renderer/stores/connectionStore';
+import { isCurrentConnection, useConnectionStore } from '@renderer/stores/connectionStore';
 import { useObjectStore } from '@renderer/stores/objectStore';
 import {
   buildTargetKey,
@@ -30,7 +23,7 @@ import { useI18n } from '@renderer/i18n';
 
 export function ExplorerPage(): React.JSX.Element {
   const { t } = useI18n();
-  const { modal } = App.useApp();
+  const { message, modal } = App.useApp();
   const { searchTerm, config, setSearchTerm } = useAppStore(
     useShallow((state) => ({
       searchTerm: state.searchTerm,
@@ -39,12 +32,11 @@ export function ExplorerPage(): React.JSX.Element {
     }))
   );
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const { buckets, loadBuckets } = useConnectionStore(
+  const buckets = useConnectionStore(
     useShallow((state) => ({
-      buckets: state.buckets,
-      loadBuckets: state.loadBuckets
+      buckets: state.buckets
     }))
-  );
+  ).buckets;
   const {
     currentConnectionId,
     currentBucket,
@@ -55,15 +47,12 @@ export function ExplorerPage(): React.JSX.Element {
     selectedObjects,
     loading,
     loadingMore,
-    loadingAll,
     hasMoreObjects,
     setSelectedObject,
     setSelectedObjects,
     setPrefix,
     loadObjects,
-    loadMoreObjects,
-    loadAllObjects,
-    cancelLoadAllObjects
+    loadMoreObjects
   } = useObjectStore(
     useShallow((state) => ({
       currentConnectionId: state.currentConnectionId,
@@ -75,15 +64,12 @@ export function ExplorerPage(): React.JSX.Element {
       selectedObjects: state.selectedObjects,
       loading: state.loading,
       loadingMore: state.loadingMore,
-      loadingAll: state.loadingAll,
       hasMoreObjects: state.hasMoreObjects,
       setSelectedObject: state.setSelectedObject,
       setSelectedObjects: state.setSelectedObjects,
       setPrefix: state.setPrefix,
       loadObjects: state.loadObjects,
-      loadMoreObjects: state.loadMoreObjects,
-      loadAllObjects: state.loadAllObjects,
-      cancelLoadAllObjects: state.cancelLoadAllObjects
+      loadMoreObjects: state.loadMoreObjects
     }))
   );
   const hasActiveConnection = useMemo(
@@ -98,12 +84,9 @@ export function ExplorerPage(): React.JSX.Element {
     () => config?.connections.find((connection) => connection.id === config.activeConnectionId),
     [config]
   );
-
-  useEffect(() => {
-    if (hasActiveConnection && activeConnection?.id) {
-      void loadBuckets(activeConnection.id).catch((error) => message.error(error.message));
-    }
-  }, [activeConnection?.id, hasActiveConnection, loadBuckets]);
+  const assertConnectionCurrent = useCallback((): void => {
+    if (!isCurrentConnection(activeConnection)) throw new Error(t('connection.changed'));
+  }, [activeConnection, t]);
 
   const navigate = useCallback(
     (prefix: string): void => {
@@ -112,18 +95,20 @@ export function ExplorerPage(): React.JSX.Element {
         message.error(error.message)
       );
     },
-    [currentBucket, currentConnectionId, loadObjects, setPrefix]
+    [currentBucket, currentConnectionId, loadObjects, message, setPrefix]
   );
 
   const upload = useCallback(async (): Promise<void> => {
-    if (!currentBucket) {
+    if (!currentBucket || !currentConnectionId) {
       message.warning(t('explorer.selectBucketFirst'));
       return;
     }
     const filePaths = await window.ossApi.selectFiles();
     if (filePaths.length === 0) return;
     try {
+      assertConnectionCurrent();
       const tasks = await window.ossApi.uploadObjects({
+        connectionId: currentConnectionId,
         bucket: currentBucket,
         prefix: currentPrefix,
         filePaths
@@ -136,17 +121,19 @@ export function ExplorerPage(): React.JSX.Element {
     } catch (error) {
       if (error instanceof Error) message.error(error.message);
     }
-  }, [currentBucket, currentPrefix, t]);
+  }, [assertConnectionCurrent, currentBucket, currentConnectionId, currentPrefix, message, t]);
 
   const uploadFolder = useCallback(async (): Promise<void> => {
-    if (!currentBucket) {
+    if (!currentBucket || !currentConnectionId) {
       message.warning(t('explorer.selectBucketFirst'));
       return;
     }
     const directoryPath = await window.ossApi.selectUploadFolder();
     if (!directoryPath) return;
     try {
+      assertConnectionCurrent();
       const tasks = await window.ossApi.uploadObjects({
+        connectionId: currentConnectionId,
         bucket: currentBucket,
         prefix: currentPrefix,
         filePaths: [],
@@ -161,10 +148,10 @@ export function ExplorerPage(): React.JSX.Element {
     } catch (error) {
       if (error instanceof Error) message.error(error.message);
     }
-  }, [currentBucket, currentPrefix, t]);
+  }, [assertConnectionCurrent, currentBucket, currentConnectionId, currentPrefix, message, t]);
 
   const createFolder = useCallback((): void => {
-    if (!currentBucket) {
+    if (!currentBucket || !currentConnectionId) {
       message.warning(t('explorer.selectBucketFirst'));
       return;
     }
@@ -182,9 +169,11 @@ export function ExplorerPage(): React.JSX.Element {
         />
       ),
       onOk: async () => {
+        assertConnectionCurrent();
         if (!folderName.trim()) return;
         try {
           await window.ossApi.createFolder(
+            currentConnectionId,
             currentBucket,
             joinPrefix(currentPrefix, folderName.trim())
           );
@@ -194,15 +183,27 @@ export function ExplorerPage(): React.JSX.Element {
         }
       }
     });
-  }, [currentBucket, currentConnectionId, currentPrefix, loadObjects, modal, t]);
+  }, [
+    assertConnectionCurrent,
+    currentBucket,
+    currentConnectionId,
+    currentPrefix,
+    loadObjects,
+    message,
+    modal,
+    t
+  ]);
 
   const downloadObject = useCallback(async (): Promise<void> => {
+    if (!currentConnectionId) return;
     const targets = selectedObjects.filter((object) => !object.isFolder);
     if (targets.length === 0) return;
     try {
+      assertConnectionCurrent();
       await Promise.all(
         targets.map((object) =>
           window.ossApi.downloadObject({
+            connectionId: currentConnectionId,
             bucket: object.bucket,
             key: object.key,
             size: object.size
@@ -213,19 +214,21 @@ export function ExplorerPage(): React.JSX.Element {
     } catch (error) {
       if (error instanceof Error) message.error(error.message);
     }
-  }, [selectedObjects, t]);
+  }, [assertConnectionCurrent, currentConnectionId, message, selectedObjects, t]);
 
   const deleteObjects = useCallback(
     (targets = selectedObjects): void => {
       const deleteTargets = uniqueObjectTargets(targets);
-      if (deleteTargets.length === 0) return;
+      if (!currentConnectionId || deleteTargets.length === 0) return;
 
       const run = async (): Promise<void> => {
         try {
+          assertConnectionCurrent();
           const groups = groupObjectsByBucket(deleteTargets);
           await Promise.all(
             [...groups.entries()].map(([bucket, objectsInBucket]) =>
               window.ossApi.deleteObject({
+                connectionId: currentConnectionId,
                 bucket,
                 keys: objectsInBucket.map((object) => object.key)
               })
@@ -254,12 +257,20 @@ export function ExplorerPage(): React.JSX.Element {
         void run();
       }
     },
-    [config?.securitySettings.requireConfirmationBeforeDelete, modal, selectedObjects, t]
+    [
+      assertConnectionCurrent,
+      config?.securitySettings.requireConfirmationBeforeDelete,
+      currentConnectionId,
+      message,
+      modal,
+      selectedObjects,
+      t
+    ]
   );
 
   const queueCopyOrMove = useCallback(
     (action: 'copy' | 'move', targets = selectedObjects): void => {
-      if (!currentBucket || targets.length === 0) return;
+      if (!currentBucket || !currentConnectionId || targets.length === 0) return;
 
       let selectedTarget: TransferTarget = {
         bucket: currentBucket,
@@ -274,7 +285,7 @@ export function ExplorerPage(): React.JSX.Element {
         okText: isMove ? t('common.move') : t('common.copy'),
         okButtonProps: { danger: isMove },
         content: (
-          <TransferTargetTreeSelector
+          <TransferTargetSelector
             action={action}
             bucketNames={buckets.map((bucket) => bucket.name)}
             currentBucket={currentBucket}
@@ -286,6 +297,7 @@ export function ExplorerPage(): React.JSX.Element {
           />
         ),
         onOk: async () => {
+          assertConnectionCurrent();
           const bucket = selectedTarget.bucket.trim();
           const prefix = normalizePrefixInput(selectedTarget.prefix);
           if (!bucket) {
@@ -305,6 +317,7 @@ export function ExplorerPage(): React.JSX.Element {
             operations.map(({ object, targetKey }) => {
               if (isMove) {
                 return window.ossApi.moveObject({
+                  connectionId: currentConnectionId,
                   sourceBucket: object.bucket,
                   sourceKey: object.key,
                   targetBucket: bucket,
@@ -314,6 +327,7 @@ export function ExplorerPage(): React.JSX.Element {
               }
 
               return window.ossApi.copyObject({
+                connectionId: currentConnectionId,
                 sourceBucket: object.bucket,
                 sourceKey: object.key,
                 targetBucket: bucket,
@@ -331,12 +345,22 @@ export function ExplorerPage(): React.JSX.Element {
         }
       });
     },
-    [buckets, currentBucket, currentPrefix, modal, selectedObjects, t]
+    [
+      assertConnectionCurrent,
+      buckets,
+      currentBucket,
+      currentConnectionId,
+      currentPrefix,
+      message,
+      modal,
+      selectedObjects,
+      t
+    ]
   );
 
   const renameObject = useCallback(
     (object = selectedObject): void => {
-      if (!object) return;
+      if (!object || !currentConnectionId) return;
 
       let nextName = objectLeafName(object);
       modal.confirm({
@@ -354,6 +378,7 @@ export function ExplorerPage(): React.JSX.Element {
           />
         ),
         onOk: async () => {
+          assertConnectionCurrent();
           const safeName = nextName.trim();
           if (!safeName || safeName.includes('/') || safeName.includes('\\')) {
             throw new Error(t('explorer.emptyName'));
@@ -365,6 +390,7 @@ export function ExplorerPage(): React.JSX.Element {
           }
 
           await window.ossApi.renameObject({
+            connectionId: currentConnectionId,
             bucket: object.bucket,
             oldKey: object.key,
             newKey
@@ -373,7 +399,7 @@ export function ExplorerPage(): React.JSX.Element {
         }
       });
     },
-    [modal, selectedObject, t]
+    [assertConnectionCurrent, currentConnectionId, message, modal, selectedObject, t]
   );
 
   const copyPath = useCallback(
@@ -382,21 +408,26 @@ export function ExplorerPage(): React.JSX.Element {
       await navigator.clipboard.writeText(object.key);
       message.success(t('explorer.keyCopied'));
     },
-    [selectedObject, t]
+    [message, selectedObject, t]
   );
 
   const copyUrl = useCallback(
     async (object = selectedObject): Promise<void> => {
-      if (!object || object.isFolder) return;
+      if (!object || object.isFolder || !currentConnectionId) return;
       try {
-        const url = await window.ossApi.generateObjectUrl(object.bucket, object.key);
+        assertConnectionCurrent();
+        const url = await window.ossApi.generateObjectUrl(
+          currentConnectionId,
+          object.bucket,
+          object.key
+        );
         await navigator.clipboard.writeText(url);
         message.success(t('explorer.urlCopied'));
       } catch (error) {
         if (error instanceof Error) message.error(error.message);
       }
     },
-    [selectedObject, t]
+    [assertConnectionCurrent, currentConnectionId, message, selectedObject, t]
   );
 
   const handleObjectSelect = useCallback(
@@ -444,13 +475,10 @@ export function ExplorerPage(): React.JSX.Element {
     void loadObjects(currentBucket, currentPrefix, currentConnectionId).catch((error) =>
       message.error(error.message)
     );
-  }, [currentBucket, currentConnectionId, currentPrefix, loadObjects]);
+  }, [currentBucket, currentConnectionId, currentPrefix, loadObjects, message]);
   const handleLoadMoreObjects = useCallback((): void => {
     void loadMoreObjects().catch((error) => message.error(error.message));
-  }, [loadMoreObjects]);
-  const handleLoadAllObjects = useCallback((): void => {
-    void loadAllObjects().catch((error) => message.error(error.message));
-  }, [loadAllObjects]);
+  }, [loadMoreObjects, message]);
   const handleOpenFolder = useCallback(
     (object: NonNullable<typeof selectedObject>): void => {
       navigate(object.key);
@@ -459,13 +487,23 @@ export function ExplorerPage(): React.JSX.Element {
   );
   const handleDownloadSingle = useCallback(
     (object: NonNullable<typeof selectedObject>): void => {
+      if (!currentConnectionId) return;
+      if (!isCurrentConnection(activeConnection)) {
+        message.warning(t('connection.changed'));
+        return;
+      }
       handleObjectSelect(object);
       void window.ossApi
-        .downloadObject({ bucket: object.bucket, key: object.key, size: object.size })
+        .downloadObject({
+          connectionId: currentConnectionId,
+          bucket: object.bucket,
+          key: object.key,
+          size: object.size
+        })
         .then(() => message.success(t('explorer.downloadTaskQueued')))
         .catch((error) => message.error(error.message));
     },
-    [handleObjectSelect, t]
+    [activeConnection, currentConnectionId, handleObjectSelect, message, t]
   );
   const handleCopyPath = useCallback(
     (object: NonNullable<typeof selectedObject>): void => {
@@ -542,7 +580,10 @@ export function ExplorerPage(): React.JSX.Element {
               prefix={<SearchOutlined />}
               placeholder={t('explorer.searchObjects')}
               value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
+              onChange={(event) => {
+                setSelectedObjects([]);
+                setSearchTerm(event.target.value);
+              }}
             />
             <Space size={6}>
               <Typography.Text type="secondary">
@@ -559,13 +600,10 @@ export function ExplorerPage(): React.JSX.Element {
         objects={objects}
         loading={loading}
         loadingMore={loadingMore}
-        loadingAll={loadingAll}
         hasMoreObjects={hasMoreObjects}
         selectedObjects={selectedObjects}
         searchTerm={searchTerm}
         onLoadMore={handleLoadMoreObjects}
-        onLoadAll={handleLoadAllObjects}
-        onCancelLoadAll={cancelLoadAllObjects}
         onSelect={handleObjectSelect}
         onMultiSelect={handleMultiSelect}
         onOpenFolder={handleOpenFolder}
@@ -587,7 +625,7 @@ export function ExplorerPage(): React.JSX.Element {
         centered
         closable
         keyboard
-        maskClosable
+        mask={{ closable: true }}
         destroyOnHidden
         onCancel={() => setDetailsOpen(false)}
       >
@@ -603,28 +641,12 @@ export function ExplorerPage(): React.JSX.Element {
     </div>
   );
 }
-
 interface TransferTarget {
   bucket: string;
   prefix: string;
 }
 
-interface FolderTreeLoadPage {
-  nodes: TreeDataNode[];
-  nextContinuationToken?: string;
-  isComplete: boolean;
-}
-
-interface FolderTreeUpdateOptions {
-  isComplete: boolean;
-}
-
-const FOLDER_TREE_SCAN_PLACEHOLDER_KEY_PREFIX = 'folder-tree-scan:';
-const MAX_CONCURRENT_FOLDER_TREE_PAGE_LOADS = 6;
-let activeFolderTreePageLoads = 0;
-const pendingFolderTreePageLoads: Array<() => void> = [];
-
-interface TransferTargetTreeSelectorProps {
+interface TransferTargetSelectorProps {
   action: 'copy' | 'move';
   bucketNames: string[];
   currentBucket: string;
@@ -633,139 +655,35 @@ interface TransferTargetTreeSelectorProps {
   onChange: (target: TransferTarget) => void;
 }
 
-function TransferTargetTreeSelector({
+function TransferTargetSelector({
   action,
   bucketNames,
   currentBucket,
   currentPrefix,
   targets,
   onChange
-}: TransferTargetTreeSelectorProps): React.JSX.Element {
+}: TransferTargetSelectorProps): React.JSX.Element {
   const { t } = useI18n();
   const initialTarget = useMemo<TransferTarget>(
     () => ({ bucket: currentBucket, prefix: normalizePrefixInput(currentPrefix) }),
     [currentBucket, currentPrefix]
   );
-  const rootBucketNames = useMemo(
-    () => uniqueNames([currentBucket, ...bucketNames]),
-    [bucketNames, currentBucket]
-  );
-  const initialExpandedKeys = useMemo(
-    () => initialTransferTargetExpandedKeys(initialTarget),
-    [initialTarget]
-  );
-  const initialSelectedKey = useMemo(() => encodeTransferTargetKey(initialTarget), [initialTarget]);
-  const [treeData, setTreeData] = useState<TreeDataNode[]>(() =>
-    buildTransferTargetTreeData(rootBucketNames, initialTarget)
-  );
-  const [expandedKeys, setExpandedKeys] = useState<React.Key[]>(initialExpandedKeys);
-  const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([initialSelectedKey]);
   const [selectedTarget, setSelectedTarget] = useState<TransferTarget>(initialTarget);
   const sourceFolders = useMemo(() => transferSourceFolders(targets), [targets]);
-  const loadedKeySet = useRef(new Set<string>());
-  const loadPromiseMap = useRef(new Map<string, Promise<void>>());
-  const scanPromiseMap = useRef(new Map<string, Promise<void>>());
-  const continuationTokenMap = useRef(new Map<string, string>());
-  const expandedKeySet = useRef(new Set(initialExpandedKeys.map(String)));
-
-  const loadNodeChildren = useCallback((nodeKey: string): Promise<void> => {
-    if (loadedKeySet.current.has(nodeKey)) {
-      return Promise.resolve();
-    }
-
-    const pendingPromise = loadPromiseMap.current.get(nodeKey);
-    if (pendingPromise) {
-      return pendingPromise;
-    }
-
-    const loadPromise = (async () => {
-      if (scanPromiseMap.current.has(nodeKey)) {
-        return;
-      }
-
-      try {
-        const target = decodeTransferTargetKey(nodeKey);
-        const page = await loadFolderTreeNodePage(
-          target.bucket,
-          target.prefix,
-          continuationTokenMap.current.get(nodeKey)
-        );
-        setTreeData((currentTreeData) =>
-          updateTransferTargetTreeData(currentTreeData, nodeKey, page.nodes, {
-            isComplete: page.isComplete
-          })
-        );
-        if (page.isComplete) {
-          continuationTokenMap.current.delete(nodeKey);
-          loadedKeySet.current.add(nodeKey);
-        } else if (page.nextContinuationToken) {
-          continuationTokenMap.current.set(nodeKey, page.nextContinuationToken);
-          const scanPromise = scanRemainingFolderTreePages(
-            nodeKey,
-            target.bucket,
-            target.prefix,
-            page.nextContinuationToken,
-            continuationTokenMap,
-            loadedKeySet,
-            expandedKeySet,
-            setTreeData
-          ).catch((error: unknown) => {
-            if (error instanceof Error) {
-              message.error(error.message);
-            }
-          });
-          scanPromiseMap.current.set(nodeKey, scanPromise);
-          void scanPromise.finally(() => {
-            scanPromiseMap.current.delete(nodeKey);
-          });
-        }
-      } catch (error) {
-        if (error instanceof Error) {
-          message.error(error.message);
-        }
-      } finally {
-        loadPromiseMap.current.delete(nodeKey);
-      }
-    })();
-
-    loadPromiseMap.current.set(nodeKey, loadPromise);
-    return loadPromise;
-  }, []);
-
-  useEffect(() => {
-    onChange(initialTarget);
-    const timer = window.setTimeout(() => {
-      for (const key of initialExpandedKeys) {
-        void loadNodeChildren(String(key));
-      }
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [initialExpandedKeys, initialTarget, loadNodeChildren, onChange]);
-
-  const handleSelect: TreeProps['onSelect'] = (keys) => {
-    const key = keys[0]?.toString();
-    if (!key) {
-      return;
-    }
-    const target = decodeTransferTargetKey(key);
-    setSelectedKeys([key]);
-    setSelectedTarget(target);
-    onChange(target);
+  const bucketOptions = useMemo(
+    () =>
+      [...new Set([currentBucket, ...bucketNames].map((name) => name.trim()).filter(Boolean))].map(
+        (name) => ({ value: name, label: name })
+      ),
+    [bucketNames, currentBucket]
+  );
+  const updateTarget = (next: TransferTarget): void => {
+    setSelectedTarget(next);
+    onChange(next);
   };
-
-  const handleExpand: TreeProps['onExpand'] = (keys) => {
-    expandedKeySet.current = new Set(keys.map(String));
-    setExpandedKeys(keys);
-    for (const key of keys) {
-      void loadNodeChildren(String(key));
-    }
-  };
-
-  const handleLoadData: NonNullable<TreeProps['loadData']> = (node) =>
-    loadNodeChildren(String(node.key));
 
   return (
-    <Space className="transfer-target-form" direction="vertical" size={10}>
+    <Space className="transfer-target-form" orientation="vertical" size={10}>
       <Typography.Text className="transfer-target-summary" type="secondary" ellipsis>
         {targets.length === 1
           ? targets[0].key
@@ -777,11 +695,13 @@ function TransferTargetTreeSelector({
                   : t('explorer.transferSummaryCopied')
             })}
       </Typography.Text>
-      <Typography.Text type="secondary">
-        {t('explorer.autoRenameHint')}
-      </Typography.Text>
+      <Typography.Text type="secondary">{t('explorer.autoRenameHint')}</Typography.Text>
       <div className="transfer-target-path-flow">
-        <TransferTargetPathInfo label={t('explorer.sourceFolder')} paths={sourceFolders} tone="source" />
+        <TransferTargetPathInfo
+          label={t('explorer.sourceFolder')}
+          paths={sourceFolders}
+          tone="source"
+        />
         <span className="transfer-target-path-arrow" aria-hidden="true">
           <ArrowDownOutlined />
         </span>
@@ -791,19 +711,22 @@ function TransferTargetTreeSelector({
           tone="target"
         />
       </div>
-      <div className="transfer-target-tree">
-        <Tree
-          blockNode
-          showLine
-          height={340}
-          treeData={treeData}
-          selectedKeys={selectedKeys}
-          expandedKeys={expandedKeys}
-          loadData={handleLoadData}
-          onSelect={handleSelect}
-          onExpand={handleExpand}
+      <Space className="transfer-target-controls" orientation="vertical" size={8}>
+        <Typography.Text>{t('explorer.targetBucket')}</Typography.Text>
+        <Select
+          value={selectedTarget.bucket}
+          options={bucketOptions}
+          aria-label={t('explorer.targetBucket')}
+          onChange={(bucket) => updateTarget({ ...selectedTarget, bucket })}
         />
-      </div>
+        <Typography.Text>{t('explorer.targetPrefix')}</Typography.Text>
+        <Input
+          value={selectedTarget.prefix}
+          placeholder={t('explorer.targetPrefixPlaceholder')}
+          aria-label={t('explorer.targetPrefix')}
+          onChange={(event) => updateTarget({ ...selectedTarget, prefix: event.target.value })}
+        />
+      </Space>
     </Space>
   );
 }
@@ -868,262 +791,6 @@ function assertTransferTargetDiffersFromSource(
   }
 }
 
-function buildTransferTargetTreeData(
-  bucketNames: string[],
-  selectedTarget: TransferTarget
-): TreeDataNode[] {
-  return bucketNames.map((bucket) => ({
-    key: encodeTransferTargetKey({ bucket, prefix: '' }),
-    title: (
-      <span className="transfer-target-node">
-        <DatabaseOutlined />
-        <span>{bucket}</span>
-      </span>
-    ),
-    children:
-      bucket === selectedTarget.bucket
-        ? buildInitialFolderPathNodes(bucket, selectedTarget.prefix)
-        : undefined,
-    isLeaf: false
-  }));
-}
-
-function buildInitialFolderPathNodes(bucket: string, prefix: string): TreeDataNode[] | undefined {
-  const segments = normalizePrefixInput(prefix).split('/').filter(Boolean);
-  if (segments.length === 0) {
-    return undefined;
-  }
-
-  let children: TreeDataNode[] | undefined;
-  for (let index = segments.length - 1; index >= 0; index -= 1) {
-    const folderPrefix = `${segments.slice(0, index + 1).join('/')}/`;
-    children = [
-      {
-        key: encodeTransferTargetKey({ bucket, prefix: folderPrefix }),
-        title: (
-          <span className="transfer-target-node">
-            <FolderOutlined />
-            <span>{segments[index]}</span>
-          </span>
-        ),
-        children,
-        isLeaf: false
-      }
-    ];
-  }
-  return children;
-}
-
-async function scanRemainingFolderTreePages(
-  nodeKey: string,
-  bucket: string,
-  prefix: string,
-  continuationToken: string,
-  continuationTokenMap: React.RefObject<Map<string, string>>,
-  loadedKeySet: React.RefObject<Set<string>>,
-  expandedKeySet: React.RefObject<Set<string>>,
-  setTreeData: React.Dispatch<React.SetStateAction<TreeDataNode[]>>
-): Promise<void> {
-  let nextContinuationToken: string | undefined = continuationToken;
-
-  while (nextContinuationToken && expandedKeySet.current.has(nodeKey)) {
-    const page = await loadFolderTreeNodePage(bucket, prefix, nextContinuationToken);
-    setTreeData((currentTreeData) =>
-      updateTransferTargetTreeData(currentTreeData, nodeKey, page.nodes, {
-        isComplete: page.isComplete
-      })
-    );
-
-    if (page.isComplete) {
-      continuationTokenMap.current.delete(nodeKey);
-      loadedKeySet.current.add(nodeKey);
-      return;
-    }
-
-    if (!page.nextContinuationToken) {
-      return;
-    }
-
-    continuationTokenMap.current.set(nodeKey, page.nextContinuationToken);
-    nextContinuationToken = page.nextContinuationToken;
-  }
-}
-
-async function loadFolderTreeNodePage(
-  bucket: string,
-  prefix: string,
-  continuationToken?: string
-): Promise<FolderTreeLoadPage> {
-  const folders = new Map<string, string>();
-
-  const result = await withFolderTreePageLoadSlot(() =>
-    window.ossApi.listFolders(bucket, prefix, continuationToken)
-  );
-  for (const object of result.objects) {
-    if (object.key === prefix) {
-      continue;
-    }
-    const folderPrefix = ensureTrailingSlash(normalizePrefixInput(object.key));
-    folders.set(folderPrefix, object.name || folderLeafName(folderPrefix));
-  }
-
-  return {
-    nodes: folderEntriesToTreeNodes(bucket, folders),
-    nextContinuationToken: result.isTruncated ? result.nextContinuationToken : undefined,
-    isComplete: !result.isTruncated
-  };
-}
-
-async function withFolderTreePageLoadSlot<T>(task: () => Promise<T>): Promise<T> {
-  if (activeFolderTreePageLoads >= MAX_CONCURRENT_FOLDER_TREE_PAGE_LOADS) {
-    await new Promise<void>((resolve) => {
-      pendingFolderTreePageLoads.push(resolve);
-    });
-  }
-
-  activeFolderTreePageLoads += 1;
-  try {
-    return await task();
-  } finally {
-    activeFolderTreePageLoads -= 1;
-    pendingFolderTreePageLoads.shift()?.();
-  }
-}
-
-function folderEntriesToTreeNodes(bucket: string, folders: Map<string, string>): TreeDataNode[] {
-  return [...folders.entries()]
-    .sort((a, b) => safeText(a[1]).localeCompare(safeText(b[1])))
-    .map(([folderPrefix, label]) => createFolderTreeNode(bucket, folderPrefix, label));
-}
-
-function createFolderTreeNode(bucket: string, prefix: string, label: string): TreeDataNode {
-  return {
-    key: encodeTransferTargetKey({ bucket, prefix }),
-    title: (
-      <span className="transfer-target-node">
-        <FolderOutlined />
-        <span>{label}</span>
-      </span>
-    ),
-    isLeaf: false
-  };
-}
-
-function updateTransferTargetTreeData(
-  treeData: TreeDataNode[],
-  targetKey: string,
-  children: TreeDataNode[],
-  options: FolderTreeUpdateOptions
-): TreeDataNode[] {
-  return treeData.map((node) => {
-    if (String(node.key) === targetKey) {
-      const mergedChildren = mergeTreeChildren(node.children, children);
-      const nextChildren = options.isComplete
-        ? mergedChildren
-        : [...mergedChildren, createFolderTreeScanPlaceholderNode(targetKey)];
-      const hasFolderChildren = nextChildren.some(
-        (child) => !isFolderTreeScanPlaceholderKey(String(child.key))
-      );
-      return {
-        ...node,
-        children: nextChildren,
-        isLeaf: options.isComplete && !hasFolderChildren
-      };
-    }
-
-    if (!node.children) {
-      return node;
-    }
-
-    return {
-      ...node,
-      children: updateTransferTargetTreeData(node.children, targetKey, children, options)
-    };
-  });
-}
-
-function mergeTreeChildren(
-  existingChildren: TreeDataNode[] | undefined,
-  loadedChildren: TreeDataNode[]
-): TreeDataNode[] {
-  const existingByKey = new Map<string, TreeDataNode>();
-  const mergedByKey = new Map<string, TreeDataNode>();
-
-  for (const existingChild of existingChildren ?? []) {
-    const key = String(existingChild.key);
-    if (isFolderTreeScanPlaceholderKey(key)) {
-      continue;
-    }
-    existingByKey.set(key, existingChild);
-    mergedByKey.set(key, existingChild);
-  }
-
-  for (const loadedChild of loadedChildren) {
-    const key = String(loadedChild.key);
-    const existingChild = existingByKey.get(key);
-    mergedByKey.set(
-      key,
-      existingChild
-        ? {
-            ...loadedChild,
-            children: existingChild.children,
-            isLeaf: existingChild.isLeaf
-          }
-        : loadedChild
-    );
-  }
-
-  return [...mergedByKey.values()].sort((a, b) =>
-    safeText(treeNodeLabel(a)).localeCompare(safeText(treeNodeLabel(b)))
-  );
-}
-
-function createFolderTreeScanPlaceholderNode(parentKey: string): TreeDataNode {
-  return {
-    key: folderTreeScanPlaceholderKey(parentKey),
-    title: (
-      <span className="transfer-target-node">
-        <LoadingOutlined spin />
-        <FolderTreeScanPlaceholderLabel />
-      </span>
-    ),
-    disabled: true,
-    selectable: false,
-    isLeaf: true
-  };
-}
-
-function folderTreeScanPlaceholderKey(parentKey: string): string {
-  return `${FOLDER_TREE_SCAN_PLACEHOLDER_KEY_PREFIX}${parentKey}`;
-}
-
-function isFolderTreeScanPlaceholderKey(key: string): boolean {
-  return key.startsWith(FOLDER_TREE_SCAN_PLACEHOLDER_KEY_PREFIX);
-}
-
-function initialTransferTargetExpandedKeys(target: TransferTarget): React.Key[] {
-  const keys: React.Key[] = [encodeTransferTargetKey({ bucket: target.bucket, prefix: '' })];
-  const segments = normalizePrefixInput(target.prefix).split('/').filter(Boolean);
-  for (let index = 0; index < segments.length; index += 1) {
-    keys.push(
-      encodeTransferTargetKey({
-        bucket: target.bucket,
-        prefix: `${segments.slice(0, index + 1).join('/')}/`
-      })
-    );
-  }
-  return keys;
-}
-
-function encodeTransferTargetKey(target: TransferTarget): string {
-  return JSON.stringify([target.bucket, normalizePrefixInput(target.prefix)]);
-}
-
-function decodeTransferTargetKey(key: string): TransferTarget {
-  const parsed = JSON.parse(key) as [string, string];
-  return { bucket: parsed[0], prefix: normalizePrefixInput(parsed[1]) };
-}
-
 function formatTransferTarget(target: TransferTarget): string {
   return `${target.bucket}/${normalizePrefixInput(target.prefix)}`;
 }
@@ -1145,24 +812,7 @@ function objectSourceFolderTarget(object: ObjectItem): TransferTarget {
 function transferSourceFolders(targets: ObjectItem[]): string[] {
   return [
     ...new Set(targets.map((object) => formatTransferTarget(objectSourceFolderTarget(object))))
-  ].sort((a, b) => safeText(a).localeCompare(safeText(b)));
-}
-
-function folderLeafName(prefix: string): string {
-  const segments = normalizePrefixInput(prefix).split('/').filter(Boolean);
-  return segments[segments.length - 1] ?? prefix;
-}
-
-function uniqueNames(names: string[]): string[] {
-  return [...new Set(names.map((name) => name.trim()).filter(Boolean))];
-}
-
-function treeNodeLabel(node: TreeDataNode): string {
-  const title = node.title;
-  if (typeof title === 'string') {
-    return title;
-  }
-  return String(node.key);
+  ].sort((a, b) => a.localeCompare(b));
 }
 
 function DeleteConfirmContent({ targets }: { targets: ObjectItem[] }): React.JSX.Element {
@@ -1170,14 +820,10 @@ function DeleteConfirmContent({ targets }: { targets: ObjectItem[] }): React.JSX
   const visibleTargets = targets.slice(0, 6);
   const folderTargets = targets.filter((object) => object.isFolder);
   return (
-    <Space className="delete-confirm-content" direction="vertical" size={6}>
-      <Typography.Text type="secondary">
-        {t('explorer.deleteRefreshHint')}
-      </Typography.Text>
+    <Space className="delete-confirm-content" orientation="vertical" size={6}>
+      <Typography.Text type="secondary">{t('explorer.deleteRefreshHint')}</Typography.Text>
       {folderTargets.length > 0 ? (
-        <Typography.Text type="danger">
-          {t('explorer.deleteFolderWarning')}
-        </Typography.Text>
+        <Typography.Text type="danger">{t('explorer.deleteFolderWarning')}</Typography.Text>
       ) : null}
       {visibleTargets.map((object) => (
         <Typography.Text className="delete-confirm-key" key={`${object.bucket}/${object.key}`}>
@@ -1193,11 +839,6 @@ function DeleteConfirmContent({ targets }: { targets: ObjectItem[] }): React.JSX
   );
 }
 
-function FolderTreeScanPlaceholderLabel(): React.JSX.Element {
-  const { t } = useI18n();
-  return <span>{t('explorer.loadingMoreFolders')}</span>;
-}
-
 function RenameConfirmContent({
   object,
   initialName,
@@ -1211,7 +852,7 @@ function RenameConfirmContent({
   const sourceName = objectLeafName(object);
 
   return (
-    <Space className="rename-confirm-content" direction="vertical" size={8}>
+    <Space className="rename-confirm-content" orientation="vertical" size={8}>
       <Typography.Text className="rename-source-name" title={sourceName}>
         {sourceName}
       </Typography.Text>
@@ -1246,8 +887,4 @@ function groupObjectsByBucket(objects: ObjectItem[]): Map<string, ObjectItem[]> 
     groups.set(object.bucket, group);
   }
   return groups;
-}
-
-function safeText(value: string | undefined): string {
-  return value ?? '';
 }

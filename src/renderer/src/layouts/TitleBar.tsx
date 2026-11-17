@@ -13,7 +13,7 @@ import {
   DatePicker,
   Empty,
   Flex,
-  List,
+  Listy,
   Popover,
   Select,
   Tag,
@@ -119,10 +119,10 @@ export function TitleBar(): React.JSX.Element {
   }, []);
 
   return (
-    <div className="titlebar">
-      <div className="titlebar-left">
+    <div className="titlebar" data-tauri-drag-region>
+      <div className="titlebar-left" data-tauri-drag-region>
         <CloudOutlined className="brand-icon" />
-        <strong>OSS Browser</strong>
+        <strong data-tauri-drag-region>OSS Browser</strong>
       </div>
       <Flex className="titlebar-right" align="center" gap={10}>
         <Popover
@@ -162,6 +162,8 @@ export function TitleBar(): React.JSX.Element {
                 size="small"
                 type="text"
                 icon={<DeleteOutlined />}
+                title={t('logs.clear')}
+                aria-label={t('logs.clear')}
                 disabled={logs.length === 0}
                 onClick={(event) => {
                   event.stopPropagation();
@@ -173,26 +175,25 @@ export function TitleBar(): React.JSX.Element {
           content={
             <div className="notification-popover">
               {notificationLogs.length > 0 ? (
-                <List
-                  size="small"
-                  dataSource={notificationLogs}
-                  renderItem={(log) => {
+                <Listy
+                  items={notificationLogs}
+                  rowKey="id"
+                  rowHoverable={false}
+                  classNames={{ item: 'notification-item' }}
+                  itemRender={(log) => {
                     const message = notificationMessage(log);
                     return (
-                      <List.Item className="notification-item">
+                      <>
                         <Typography.Text className="notification-time" type="secondary">
                           {formatDate(log.timestamp)}
                         </Typography.Text>
                         <Tag className="notification-level" color={logTagColor(log)}>
                           {logTagText(log)}
                         </Tag>
-                        <Typography.Text
-                          className="notification-message"
-                          title={message}
-                        >
+                        <Typography.Text className="notification-message" title={message}>
                           {message}
                         </Typography.Text>
-                      </List.Item>
+                      </>
                     );
                   }}
                 />
@@ -205,6 +206,8 @@ export function TitleBar(): React.JSX.Element {
           <Button
             className="notification-button"
             type="text"
+            title={t('logs.open')}
+            aria-label={t('logs.open')}
             icon={
               <Badge size="small" count={unreadErrorCount} overflowCount={99}>
                 <BellOutlined />
@@ -217,12 +220,16 @@ export function TitleBar(): React.JSX.Element {
           className="window-button"
           type="text"
           icon={<MinusOutlined />}
+          title={t('window.minimize')}
+          aria-label={t('window.minimize')}
           onClick={() => void window.ossApi.windowMinimize()}
         />
         <Button
           className="window-button"
           type="text"
           icon={isMaximized ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+          title={isMaximized ? t('window.restore') : t('window.maximize')}
+          aria-label={isMaximized ? t('window.restore') : t('window.maximize')}
           onClick={() => {
             void window.ossApi
               .windowMaximize()
@@ -235,6 +242,8 @@ export function TitleBar(): React.JSX.Element {
           className="window-button danger"
           type="text"
           icon={<CloseOutlined />}
+          title={t('window.close')}
+          aria-label={t('window.close')}
           onClick={() => void window.ossApi.windowClose()}
         />
       </Flex>

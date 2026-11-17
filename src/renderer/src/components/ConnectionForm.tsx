@@ -1,5 +1,7 @@
-import { CheckCircleFilled, CloseCircleFilled } from '@ant-design/icons';
+import { CheckCircleFilled, CloseCircleFilled, DownloadOutlined } from '@ant-design/icons';
 import {
+  Alert,
+  App,
   Button,
   Col,
   Descriptions,
@@ -10,10 +12,9 @@ import {
   Select,
   Space,
   Switch,
-  Tabs,
-  message
+  Tabs
 } from 'antd';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   DEFAULT_APPEARANCE_SETTINGS,
   DEFAULT_SECURITY_SETTINGS,
@@ -42,14 +43,19 @@ export function ConnectionForm({
   mode = 'all',
   onSaved
 }: Props): React.JSX.Element {
+  const { message } = App.useApp();
   const { t } = useI18n();
   const [form] = Form.useForm<ConnectionConfig>();
   const [settingsForm] = Form.useForm<AppConfig>();
   const [activeTab, setActiveTab] = useState<SettingsTabKey>('transferSecurity');
   const [diagnostics, setDiagnostics] = useState<AppDiagnostics>();
   const [testingConnection, setTestingConnection] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [exportingDiagnostics, setExportingDiagnostics] = useState(false);
   const [testConnectionState, setTestConnectionState] = useState<TestConnectionState>('idle');
+  const saveInFlightRef = useRef(false);
   const setConnectionStatus = useConnectionStore((state) => state.setConnectionStatus);
+  const saveConnection = useConnectionStore((state) => state.saveConnection);
   const fieldColProps = { xs: 24, md: 12 };
   const active =
     connectionId === null
@@ -79,6 +85,7 @@ export function ConnectionForm({
     [active]
   );
   const canUseStoredSecret = Boolean(active?.hasSecretAccessKey);
+  const secureCredentialStorageAvailable = diagnostics?.secureCredentialStorageAvailable !== false;
 
   useEffect(() => {
     form.setFieldsValue({
@@ -89,16 +96,26 @@ export function ConnectionForm({
   }, [config, form, initialConnection, settingsForm]);
 
   useEffect(() => {
-    if (activeTab !== 'about') {
+    if (mode === 'connection') {
       return;
     }
+    let canceled = false;
     void window.ossApi
       .getDiagnostics()
-      .then(setDiagnostics)
+      .then((value) => {
+        if (canceled) return;
+        setDiagnostics(value);
+        if (!value.secureCredentialStorageAvailable) {
+          settingsForm.setFieldValue(['securitySettings', 'rememberCredentialsLocally'], false);
+        }
+      })
       .catch((error) => {
         if (error instanceof Error) message.error(error.message);
       });
-  }, [activeTab]);
+    return () => {
+      canceled = true;
+    };
+  }, [message, mode, settingsForm]);
 
   const handleTest = async (): Promise<void> => {
     if (testingConnection) {
@@ -170,9 +187,12 @@ export function ConnectionForm({
   };
 
   const handleSaveConnection = async (): Promise<void> => {
+    if (saveInFlightRef.current) return;
+    saveInFlightRef.current = true;
+    setSaving(true);
     try {
       const values = await form.validateFields();
-      const next = await window.ossApi.saveConnection({
+      const next = await saveConnection({
         ...initialConnection,
         ...values,
         checksumAlgorithm: values.checksumAlgorithm ?? 'disabled'
@@ -184,10 +204,16 @@ export function ConnectionForm({
       message.success(t('settings.connectionSaved'));
     } catch (error) {
       if (error instanceof Error) message.error(error.message);
+    } finally {
+      saveInFlightRef.current = false;
+      setSaving(false);
     }
   };
 
   const handleSaveSettings = async (): Promise<void> => {
+    if (saveInFlightRef.current) return;
+    saveInFlightRef.current = true;
+    setSaving(true);
     try {
       const values = settingsForm.getFieldsValue(true);
       const next = await window.ossApi.saveSettings({
@@ -198,7 +224,10 @@ export function ConnectionForm({
         },
         securitySettings: {
           ...DEFAULT_SECURITY_SETTINGS,
-          ...values.securitySettings
+          ...values.securitySettings,
+          rememberCredentialsLocally:
+            secureCredentialStorageAvailable &&
+            values.securitySettings?.rememberCredentialsLocally === true
         },
         appearanceSettings: {
           ...DEFAULT_APPEARANCE_SETTINGS,
@@ -209,12 +238,30 @@ export function ConnectionForm({
       message.success(t('settings.savedRestart'));
     } catch (error) {
       if (error instanceof Error) message.error(error.message);
+    } finally {
+      saveInFlightRef.current = false;
+      setSaving(false);
+    }
+  };
+
+  const handleExportDiagnostics = async (): Promise<void> => {
+    if (exportingDiagnostics) return;
+    setExportingDiagnostics(true);
+    try {
+      const path = await window.ossApi.exportDiagnostics();
+      if (path) {
+        message.success(t('settings.diagnosticsExported', { path }));
+      }
+    } catch {
+      message.error(t('settings.diagnosticsExportFailed'));
+    } finally {
+      setExportingDiagnostics(false);
     }
   };
 
   const settingsActions = (
     <Space className="settings-actions">
-      <Button type="primary" onClick={() => void handleSaveSettings()}>
+      <Button type="primary" loading={saving} onClick={() => void handleSaveSettings()}>
         {t('settings.saveSettings')}
       </Button>
     </Space>
@@ -239,32 +286,38 @@ export function ConnectionForm({
       <div className="settings-form-body">
         <Row gutter={[16, 0]}>
           <Col {...fieldColProps}>
-            <Form.Item label={t('settings.profileName')} name="profileName" rules={[{ required: true }]}>
+            <Form.Item
+              label={t('settings.profileName')}
+              name="profileName"
+              rules={[{ required: true }]}
+            >
               <Input />
             </Form.Item>
           </Col>
           <Col {...fieldColProps}>
-            <Form.Item label="Endpoint" name="endpoint" rules={[{ required: true }]}>
+            <Form.Item label={t('settings.endpoint')} name="endpoint" rules={[{ required: true }]}>
               <Input placeholder="oss-cn-shanghai.aliyuncs.com" />
             </Form.Item>
           </Col>
           <Col {...fieldColProps}>
-            <Form.Item label="Region" name="region" rules={[{ required: true }]}>
+            <Form.Item label={t('settings.region')} name="region" rules={[{ required: true }]}>
               <Input placeholder="us-east-1" />
             </Form.Item>
           </Col>
           <Col {...fieldColProps}>
-            <Form.Item label="Access Key ID" name="accessKeyId" rules={[{ required: true }]}>
+            <Form.Item
+              label={t('settings.accessKeyId')}
+              name="accessKeyId"
+              rules={[{ required: true }]}
+            >
               <Input />
             </Form.Item>
           </Col>
           <Col {...fieldColProps}>
             <Form.Item
-              label="Secret Access Key"
+              label={t('settings.secretAccessKey')}
               name="secretAccessKey"
-              extra={
-                canUseStoredSecret ? t('settings.savedSecretHint') : undefined
-              }
+              extra={canUseStoredSecret ? t('settings.savedSecretHint') : undefined}
               rules={[
                 {
                   validator: async (_rule, value?: string) => {
@@ -276,7 +329,9 @@ export function ConnectionForm({
             >
               <Input.Password
                 visibilityToggle
-                placeholder={canUseStoredSecret ? t('settings.useSavedSecret') : 'Secret Access Key'}
+                placeholder={
+                  canUseStoredSecret ? t('settings.useSavedSecret') : t('settings.secretAccessKey')
+                }
               />
             </Form.Item>
           </Col>
@@ -286,12 +341,16 @@ export function ConnectionForm({
             </Form.Item>
           </Col>
           <Col {...fieldColProps}>
-            <Form.Item label={t('settings.forcePathStyle')} name="forcePathStyle" valuePropName="checked">
+            <Form.Item
+              label={t('settings.forcePathStyle')}
+              name="forcePathStyle"
+              valuePropName="checked"
+            >
               <Switch />
             </Form.Item>
           </Col>
           <Col {...fieldColProps}>
-            <Form.Item label="SSL" name="ssl" valuePropName="checked">
+            <Form.Item label={t('settings.ssl')} name="ssl" valuePropName="checked">
               <Switch />
             </Form.Item>
           </Col>
@@ -316,11 +375,12 @@ export function ConnectionForm({
         <Button
           icon={testingConnection ? undefined : testConnectionIcon}
           loading={testingConnection}
+          disabled={saving}
           onClick={() => void handleTest()}
         >
           {t('settings.testConnection')}
         </Button>
-        <Button type="primary" onClick={() => void handleSaveConnection()}>
+        <Button type="primary" loading={saving} onClick={() => void handleSaveConnection()}>
           {t('settings.saveConnection')}
         </Button>
       </Space>
@@ -342,7 +402,7 @@ export function ConnectionForm({
               name={['transferSettings', 'concurrentTransfers']}
               extra={t('settings.concurrentTransfersHelp')}
             >
-              <InputNumber min={1} max={16} />
+              <InputNumber min={1} max={8} />
             </Form.Item>
           </Col>
           <Col {...fieldColProps}>
@@ -360,7 +420,7 @@ export function ConnectionForm({
               name={['transferSettings', 'chunkSizeMb']}
               extra={t('settings.chunkSizeHelp')}
             >
-              <InputNumber min={5} max={5120} addonAfter="MiB" />
+              <InputNumber min={5} max={5120} suffix="MiB" />
             </Form.Item>
           </Col>
           <Col {...fieldColProps}>
@@ -375,28 +435,27 @@ export function ConnectionForm({
           <Col {...fieldColProps}>
             <Form.Item
               label={t('settings.defaultDownloadFolder')}
-              name={['transferSettings', 'defaultDownloadFolder']}
+              htmlFor="settings-download-folder"
               extra={t('settings.defaultDownloadFolderHelp')}
             >
-              <Input
-                addonAfter={
-                  <Button
-                    type="link"
-                    size="small"
-                    onClick={async () => {
-                      const folder = await window.ossApi.selectFolder();
-                      if (folder) {
-                        settingsForm.setFieldValue(
-                          ['transferSettings', 'defaultDownloadFolder'],
-                          folder
-                        );
-                      }
-                    }}
-                  >
-                    {t('settings.browse')}
-                  </Button>
-                }
-              />
+              <Space.Compact block>
+                <Form.Item name={['transferSettings', 'defaultDownloadFolder']} noStyle>
+                  <Input id="settings-download-folder" />
+                </Form.Item>
+                <Button
+                  onClick={async () => {
+                    const folder = await window.ossApi.selectFolder();
+                    if (folder) {
+                      settingsForm.setFieldValue(
+                        ['transferSettings', 'defaultDownloadFolder'],
+                        folder
+                      );
+                    }
+                  }}
+                >
+                  {t('settings.browse')}
+                </Button>
+              </Space.Compact>
             </Form.Item>
           </Col>
           <Col {...fieldColProps}>
@@ -419,9 +478,13 @@ export function ConnectionForm({
               label={t('settings.rememberCredentials')}
               name={['securitySettings', 'rememberCredentialsLocally']}
               valuePropName="checked"
-              extra={t('settings.rememberCredentialsHelp')}
+              extra={
+                secureCredentialStorageAvailable
+                  ? t('settings.rememberCredentialsHelp')
+                  : t('settings.secureCredentialStorageUnavailable')
+              }
             >
-              <Switch />
+              <Switch disabled={!secureCredentialStorageAvailable} />
             </Form.Item>
           </Col>
           <Col {...fieldColProps}>
@@ -435,6 +498,9 @@ export function ConnectionForm({
             </Form.Item>
           </Col>
         </Row>
+        {diagnostics && !secureCredentialStorageAvailable ? (
+          <Alert type="warning" showIcon title={t('settings.secureCredentialStorageUnavailable')} />
+        ) : null}
       </div>
       {settingsActions}
     </Form>
@@ -500,23 +566,43 @@ export function ConnectionForm({
   );
 
   const aboutContent = (
-    <Space className="settings-form about-settings" direction="vertical" size={12}>
+    <Space className="settings-form about-settings" orientation="vertical" size={12}>
       <Descriptions
         size="small"
         bordered
         column={1}
         items={[
-          { key: 'name', label: t('settings.appName'), children: diagnostics?.appName ?? 'OSS Browser' },
-          { key: 'version', label: t('settings.appVersion'), children: diagnostics?.appVersion ?? '-' },
-          { key: 'electron', label: 'Electron', children: diagnostics?.electronVersion ?? '-' },
+          {
+            key: 'name',
+            label: t('settings.appName'),
+            children: diagnostics?.appName ?? 'OSS Browser'
+          },
+          {
+            key: 'version',
+            label: t('settings.appVersion'),
+            children: diagnostics?.appVersion ?? '-'
+          },
+          { key: 'tauri', label: 'Tauri', children: diagnostics?.tauriVersion ?? '-' },
+          { key: 'webview', label: 'WebView2', children: diagnostics?.webviewVersion ?? '-' },
           {
             key: 'system',
             label: t('settings.system'),
             children: diagnostics ? `${diagnostics.platform} ${diagnostics.arch}` : '-'
           },
-          { key: 'config', label: t('settings.configFile'), children: diagnostics?.configFilePath ?? '-' }
+          {
+            key: 'config',
+            label: t('settings.configFile'),
+            children: diagnostics?.configFilePath ?? '-'
+          }
         ]}
       />
+      <Button
+        icon={<DownloadOutlined />}
+        loading={exportingDiagnostics}
+        onClick={() => void handleExportDiagnostics()}
+      >
+        {t('settings.exportDiagnostics')}
+      </Button>
     </Space>
   );
 
@@ -537,7 +623,11 @@ export function ConnectionForm({
         activeKey={activeTab}
         destroyOnHidden
         items={[
-          { key: 'transferSecurity', label: t('settings.transferSecurity'), children: transferSecurityContent },
+          {
+            key: 'transferSecurity',
+            label: t('settings.transferSecurity'),
+            children: transferSecurityContent
+          },
           { key: 'appearance', label: t('settings.appearance'), children: appearanceContent },
           { key: 'about', label: t('settings.about'), children: aboutContent }
         ]}

@@ -5,7 +5,6 @@ interface TaskState {
   tasks: TaskItem[];
   loadTasks: () => Promise<void>;
   upsertTask: (task: TaskItem) => void;
-  clearCompleted: () => Promise<void>;
 }
 
 const TASK_UPDATE_BATCH_MS = 100;
@@ -17,9 +16,11 @@ const TERMINAL_STATUSES = new Set<TaskStatus>([
   'stopped'
 ]);
 
-export const useTaskStore = create<TaskState>((set, get) => {
+export const useTaskStore = create<TaskState>((set) => {
   const pendingTaskUpdates = new Map<string, TaskItem>();
   let flushTimer: ReturnType<typeof setTimeout> | undefined;
+  let loadingSnapshot = false;
+  let snapshotRequestId = 0;
 
   const flushPendingTaskUpdates = (): void => {
     if (flushTimer) {
@@ -45,35 +46,50 @@ export const useTaskStore = create<TaskState>((set, get) => {
   return {
     tasks: [],
     loadTasks: async () => {
-      pendingTaskUpdates.clear();
+      const requestId = ++snapshotRequestId;
+      loadingSnapshot = true;
       if (flushTimer) {
         clearTimeout(flushTimer);
         flushTimer = undefined;
       }
-      const tasks = await window.ossApi.listTasks();
-      set({ tasks: sortTasks(tasks) });
+      try {
+        const tasks = await window.ossApi.listTasks();
+        if (requestId !== snapshotRequestId) {
+          return;
+        }
+        const updates = [...pendingTaskUpdates.values()];
+        pendingTaskUpdates.clear();
+        set((state) => {
+          const snapshotState = { ...state, tasks: sortTasks(tasks) };
+          return mergeTaskUpdates(snapshotState, updates);
+        });
+      } finally {
+        if (requestId === snapshotRequestId) {
+          loadingSnapshot = false;
+          if (pendingTaskUpdates.size > 0) {
+            scheduleFlush();
+          }
+        }
+      }
     },
     upsertTask: (task) => {
       pendingTaskUpdates.set(task.id, task);
+      if (loadingSnapshot) {
+        return;
+      }
       if (task.status === 'pending' || TERMINAL_STATUSES.has(task.status)) {
         flushPendingTaskUpdates();
         return;
       }
       scheduleFlush();
-    },
-    clearCompleted: async () => {
-      pendingTaskUpdates.clear();
-      if (flushTimer) {
-        clearTimeout(flushTimer);
-        flushTimer = undefined;
-      }
-      await window.ossApi.clearCompletedTasks();
-      await get().loadTasks();
     }
   };
 });
 
-function mergeTaskUpdates(state: TaskState, updates: TaskItem[]): TaskState | Pick<TaskState, 'tasks'> {
+function mergeTaskUpdates(
+  state: TaskState,
+  updates: TaskItem[]
+): TaskState | Pick<TaskState, 'tasks'> {
   if (updates.length === 0) {
     return state;
   }

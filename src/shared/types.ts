@@ -132,6 +132,7 @@ export interface BatchOperationReport {
   failed: number;
   skipped: number;
   failedItems: BatchOperationFailedItem[];
+  failedItemsTruncated: boolean;
 }
 
 export interface TaskPartStats {
@@ -199,6 +200,7 @@ export interface TestConnectionResult {
 }
 
 export interface UploadRequest {
+  connectionId: string;
   bucket: string;
   prefix: string;
   filePaths: string[];
@@ -207,6 +209,7 @@ export interface UploadRequest {
 }
 
 export interface DownloadRequest {
+  connectionId: string;
   bucket: string;
   key: string;
   savePath?: string;
@@ -214,12 +217,14 @@ export interface DownloadRequest {
 }
 
 export interface DeleteRequest {
+  connectionId: string;
   bucket: string;
   key?: string;
   keys?: string[];
 }
 
 export interface CopyRequest {
+  connectionId: string;
   sourceBucket: string;
   sourceKey: string;
   targetBucket: string;
@@ -230,6 +235,7 @@ export interface CopyRequest {
 export type MoveRequest = CopyRequest;
 
 export interface RenameRequest {
+  connectionId: string;
   bucket: string;
   oldKey: string;
   newKey: string;
@@ -238,14 +244,14 @@ export interface RenameRequest {
 export interface AppDiagnostics {
   appName: string;
   appVersion: string;
-  electronVersion: string;
-  chromeVersion: string;
-  nodeVersion: string;
+  tauriVersion: string;
+  webviewVersion: string;
   platform: string;
   arch: string;
   generatedAt: string;
   userDataPath: string;
   configFilePath: string;
+  secureCredentialStorageAvailable: boolean;
   configSummary: AppConfig;
   recentLogs: LogEntry[];
   failedTasks: TaskItem[];

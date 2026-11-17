@@ -1,11 +1,11 @@
 import { CloseCircleOutlined, CopyOutlined, EyeOutlined, ReloadOutlined } from '@ant-design/icons';
 import {
+  App,
   Button,
   Descriptions,
   Drawer,
   Empty,
   Flex,
-  message,
   Progress,
   Space,
   Table,
@@ -21,10 +21,10 @@ import { useI18n } from '@renderer/i18n';
 import { useLogStore } from '@renderer/stores/logStore';
 import { formatDate } from '@renderer/utils/formatDate';
 import { formatSize } from '@renderer/utils/formatSize';
+import { formatTaskPath } from '@renderer/utils/formatTaskPath';
 
 interface Props {
   tasks: TaskItem[];
-  compact?: boolean;
   onCancel: (task: TaskItem) => void;
   onRetry: (task: TaskItem) => void;
 }
@@ -32,8 +32,7 @@ interface Props {
 const TASK_TABLE_WIDTH = 1052;
 const DEFAULT_TABLE_BODY_HEIGHT = 420;
 const TASK_TABLE_HEADER_FALLBACK_HEIGHT = 40;
-const COMPACT_MIN_TABLE_BODY_HEIGHT = 108;
-const DEFAULT_MIN_TABLE_BODY_HEIGHT = 180;
+const MIN_TABLE_BODY_HEIGHT = 108;
 
 const statusColors: Record<TaskItem['status'], SemanticTagColor> = {
   pending: 'default',
@@ -58,12 +57,16 @@ const taskStatuses: TaskStatus[] = [
   'canceled'
 ];
 
-function TaskTableComponent({ tasks, compact, onCancel, onRetry }: Props): React.JSX.Element {
+function TaskTableComponent({ tasks, onCancel, onRetry }: Props): React.JSX.Element {
   const { t } = useI18n();
   const shellRef = useRef<HTMLDivElement>(null);
   const headerHeightRef = useRef<number | undefined>(undefined);
-  const [detailTask, setDetailTask] = useState<TaskItem>();
+  const [detailTaskId, setDetailTaskId] = useState<string>();
   const [tableBodyHeight, setTableBodyHeight] = useState(DEFAULT_TABLE_BODY_HEIGHT);
+  const detailTask = useMemo(
+    () => tasks.find((task) => task.id === detailTaskId),
+    [detailTaskId, tasks]
+  );
   const taskTypeFilters = useMemo(
     () => taskTypes.map((value) => ({ text: taskTypeLabel(value, t), value })),
     [t]
@@ -86,10 +89,10 @@ function TaskTableComponent({ tasks, compact, onCancel, onRetry }: Props): React
       frameId = window.requestAnimationFrame(() => {
         const headerHeight = headerHeightRef.current ?? measureTableHeaderHeight(shell);
         headerHeightRef.current = headerHeight;
-        const minBodyHeight = compact
-          ? COMPACT_MIN_TABLE_BODY_HEIGHT
-          : DEFAULT_MIN_TABLE_BODY_HEIGHT;
-        const nextHeight = Math.max(minBodyHeight, Math.floor(shellHeight - headerHeight - 2));
+        const nextHeight = Math.max(
+          MIN_TABLE_BODY_HEIGHT,
+          Math.floor(shellHeight - headerHeight - 2)
+        );
         setTableBodyHeight((current) => (current === nextHeight ? current : nextHeight));
       });
     };
@@ -109,7 +112,7 @@ function TaskTableComponent({ tasks, compact, onCancel, onRetry }: Props): React
       }
       resizeObserver.disconnect();
     };
-  }, [compact]);
+  }, []);
 
   const columns: ColumnsType<TaskItem> = useMemo(
     () => [
@@ -128,7 +131,6 @@ function TaskTableComponent({ tasks, compact, onCancel, onRetry }: Props): React
         ellipsis: true,
         filters: taskTypeFilters,
         onFilter: (value, record) => record.type === value,
-        shouldCellUpdate: (record, previousRecord) => record.type !== previousRecord.type,
         render: (value: TaskType) => taskTypeLabel(value, t)
       },
       {
@@ -137,7 +139,6 @@ function TaskTableComponent({ tasks, compact, onCancel, onRetry }: Props): React
         width: 106,
         filters: statusFilters,
         onFilter: (value, record) => record.status === value,
-        shouldCellUpdate: (record, previousRecord) => record.status !== previousRecord.status,
         render: (_value, record) => (
           <Tag color={statusColors[record.status]}>{taskStatusLabel(record.status, t)}</Tag>
         )
@@ -167,10 +168,6 @@ function TaskTableComponent({ tasks, compact, onCancel, onRetry }: Props): React
         title: t('tasks.info'),
         width: 108,
         ellipsis: { showTitle: false },
-        shouldCellUpdate: (record, previousRecord) =>
-          record.errorMessage !== previousRecord.errorMessage ||
-          record.failure?.message !== previousRecord.failure?.message ||
-          record.report?.failed !== previousRecord.report?.failed,
         render: (_value, record) => {
           const value = formatTaskInfo(record, t);
           return ellipsisText(value);
@@ -181,10 +178,12 @@ function TaskTableComponent({ tasks, compact, onCancel, onRetry }: Props): React
         width: 150,
         ellipsis: { showTitle: false },
         shouldCellUpdate: (record, previousRecord) =>
-          record.source !== previousRecord.source || record.target !== previousRecord.target,
+          record.type !== previousRecord.type ||
+          record.source !== previousRecord.source ||
+          record.target !== previousRecord.target,
         render: (_value, record) => {
-          const value = formatTaskPath(record);
-          return ellipsisText(value);
+          const value = formatTaskPath(record, record.target ? 'target' : 'source');
+          return ellipsisText(value.trim() ? value : '-');
         }
       },
       {
@@ -204,7 +203,6 @@ function TaskTableComponent({ tasks, compact, onCancel, onRetry }: Props): React
       {
         title: t('tasks.actions'),
         width: 112,
-        shouldCellUpdate: (record, previousRecord) => record.status !== previousRecord.status,
         render: (_value, record) => (
           <Space size={4}>
             <Button
@@ -213,7 +211,7 @@ function TaskTableComponent({ tasks, compact, onCancel, onRetry }: Props): React
               title={t('tasks.viewDetails')}
               aria-label={t('tasks.viewDetails')}
               icon={<EyeOutlined />}
-              onClick={() => setDetailTask(record)}
+              onClick={() => setDetailTaskId(record.id)}
             />
             <Button
               className="task-table-action-button"
@@ -241,7 +239,7 @@ function TaskTableComponent({ tasks, compact, onCancel, onRetry }: Props): React
   );
 
   return (
-    <div className={`task-table-shell${compact ? ' compact' : ''}`} ref={shellRef}>
+    <div className="task-table-shell" ref={shellRef}>
       <Table
         className="task-table"
         size="small"
@@ -260,11 +258,11 @@ function TaskTableComponent({ tasks, compact, onCancel, onRetry }: Props): React
           )
         }}
         onRow={(record) => ({
-          onDoubleClick: () => setDetailTask(record)
+          onDoubleClick: () => setDetailTaskId(record.id)
         })}
       />
       {detailTask ? (
-        <TaskDetailsDrawer task={detailTask} onClose={() => setDetailTask(undefined)} />
+        <TaskDetailsDrawer task={detailTask} onClose={() => setDetailTaskId(undefined)} />
       ) : null}
     </div>
   );
@@ -336,11 +334,6 @@ function formatTaskInfo(record: TaskItem, translateText: ReturnType<typeof useI1
   return '-';
 }
 
-function formatTaskPath(record: TaskItem): string {
-  const value = record.target || record.source || '';
-  return value.trim() ? value : '-';
-}
-
 function formatDuration(record: TaskItem): string {
   const duration =
     record.durationMs ??
@@ -372,30 +365,33 @@ function TaskDetailsDrawer({
   task: TaskItem;
   onClose: () => void;
 }): React.JSX.Element {
+  const { message } = App.useApp();
   const { t } = useI18n();
   const logs = useLogStore((state) => state.logs);
   const relatedLogs = useMemo(() => findRelatedLogs(logs, task), [logs, task]);
+  const source = formatTaskPath(task, 'source') || '-';
+  const target = formatTaskPath(task, 'target') || '-';
   const copyDetails = useCallback(async (): Promise<void> => {
     const detail = [
       `${t('tasks.id')}：${task.id}`,
       `${t('tasks.name')}：${task.name}`,
       `${t('tasks.type')}：${taskTypeLabel(task.type, t)}`,
       `${t('tasks.status')}：${taskStatusLabel(task.status, t)}`,
-      `${t('tasks.source')}：${task.source || '-'}`,
-      `${t('tasks.target')}：${task.target || '-'}`,
+      `${t('tasks.source')}：${source}`,
+      `${t('tasks.target')}：${target}`,
       `${t('tasks.info')}：${task.errorMessage ?? task.failure?.message ?? '-'}`,
       `${t('tasks.failureCategory')}：${task.failure ? failureCategoryLabel(task.failure.category, t) : '-'}`,
       `${t('tasks.recentError')}：${task.failure?.detail ?? task.errorMessage ?? '-'}`
     ].join('\n');
     await navigator.clipboard.writeText(detail);
     message.success(t('tasks.detailsCopied'));
-  }, [task, t]);
+  }, [task, source, target, t, message]);
 
   return (
     <Drawer
       title={t('tasks.detailsTitle')}
       open
-      width={560}
+      size={560}
       onClose={onClose}
       extra={
         <Button size="small" icon={<CopyOutlined />} onClick={() => void copyDetails()}>
@@ -403,7 +399,7 @@ function TaskDetailsDrawer({
         </Button>
       }
     >
-      <Space className="task-detail-drawer" direction="vertical" size={14}>
+      <Space className="task-detail-drawer" orientation="vertical" size={14}>
         <Descriptions
           size="small"
           bordered
@@ -411,8 +407,8 @@ function TaskDetailsDrawer({
           items={[
             { key: 'name', label: t('tasks.name'), children: textValue(task.name) },
             { key: 'type', label: t('tasks.type'), children: taskTypeLabel(task.type, t) },
-            { key: 'source', label: t('tasks.source'), children: textValue(task.source || '-') },
-            { key: 'target', label: t('tasks.target'), children: textValue(task.target || '-') },
+            { key: 'source', label: t('tasks.source'), children: textValue(source) },
+            { key: 'target', label: t('tasks.target'), children: textValue(target) },
             { key: 'status', label: t('tasks.status'), children: statusTag(task, t) },
             { key: 'progress', label: t('tasks.progress'), children: `${task.progress}%` },
             {
@@ -425,10 +421,18 @@ function TaskDetailsDrawer({
               label: t('tasks.failureCategory'),
               children: task.failure ? failureCategoryLabel(task.failure.category, t) : '-'
             },
-            { key: 'retry', label: t('tasks.retries'), children: `${task.retries}/${task.maxRetries}` },
+            {
+              key: 'retry',
+              label: t('tasks.retries'),
+              children: `${task.retries}/${task.maxRetries}`
+            },
             { key: 'createdAt', label: t('tasks.createdAt'), children: formatDate(task.createdAt) },
             { key: 'startedAt', label: t('tasks.startedAt'), children: formatDate(task.startedAt) },
-            { key: 'completedAt', label: t('tasks.completedAt'), children: formatDate(task.completedAt) },
+            {
+              key: 'completedAt',
+              label: t('tasks.completedAt'),
+              children: formatDate(task.completedAt)
+            },
             { key: 'duration', label: t('tasks.duration'), children: formatDuration(task) }
           ]}
         />
@@ -452,8 +456,12 @@ function TaskPartSummary({ task }: { task: TaskItem }): React.JSX.Element | null
       <Typography.Text strong>{t('tasks.partStats')}</Typography.Text>
       <Flex gap={8} wrap="wrap">
         <Tag>{t('tasks.totalParts', { value: stats?.totalParts ?? task.totalParts ?? '-' })}</Tag>
-        <Tag color="success">{t('tasks.successParts', { value: stats?.completedParts ?? task.completedParts ?? 0 })}</Tag>
-        <Tag color={stats?.failedParts ? 'error' : 'default'}>{t('tasks.failedParts', { value: stats?.failedParts ?? 0 })}</Tag>
+        <Tag color="success">
+          {t('tasks.successParts', { value: stats?.completedParts ?? task.completedParts ?? 0 })}
+        </Tag>
+        <Tag color={stats?.failedParts ? 'error' : 'default'}>
+          {t('tasks.failedParts', { value: stats?.failedParts ?? 0 })}
+        </Tag>
         <Tag>{t('tasks.retriedParts', { value: stats?.retriedParts ?? task.retries })}</Tag>
         <Tag>{t('tasks.activeParts', { value: stats?.activeParts ?? 0 })}</Tag>
         <Tag>{t('tasks.averageSpeed', { value: formatSize(stats?.averageSpeed) })}</Tag>
@@ -476,8 +484,13 @@ function TaskReportSummary({ task }: { task: TaskItem }): React.JSX.Element | nu
         <Tag>{t('tasks.total', { value: report.total })}</Tag>
         <Tag color="success">{t('tasks.success', { value: report.success })}</Tag>
         <Tag>{t('tasks.skipped', { value: report.skipped })}</Tag>
-        <Tag color={report.failed > 0 ? 'error' : 'default'}>{t('tasks.failed', { value: report.failed })}</Tag>
+        <Tag color={report.failed > 0 ? 'error' : 'default'}>
+          {t('tasks.failed', { value: report.failed })}
+        </Tag>
       </Flex>
+      {report.failedItemsTruncated ? (
+        <Typography.Text type="secondary">{t('tasks.failedItemsTruncated')}</Typography.Text>
+      ) : null}
       {report.failedItems.length > 0 ? (
         <Table
           className="task-failed-items-table"
@@ -533,7 +546,7 @@ function RelatedLogList({ logs }: { logs: LogEntry[] }): React.JSX.Element {
     <div className="task-detail-section">
       <Typography.Text strong>{t('tasks.relatedLogs')}</Typography.Text>
       {logs.length > 0 ? (
-        <Space direction="vertical" size={6} className="task-related-logs">
+        <Space orientation="vertical" size={6} className="task-related-logs">
           {logs.slice(0, 8).map((log) => (
             <Typography.Text key={log.id} className="task-related-log" type="secondary">
               {formatDate(log.timestamp)} · {log.operation ?? log.level} · {log.message}
@@ -560,7 +573,10 @@ function findRelatedLogs(logs: LogEntry[], task: TaskItem): LogEntry[] {
     .reverse();
 }
 
-function statusTag(task: TaskItem, translateText: ReturnType<typeof useI18n>['t']): React.JSX.Element {
+function statusTag(
+  task: TaskItem,
+  translateText: ReturnType<typeof useI18n>['t']
+): React.JSX.Element {
   return <Tag color={statusColors[task.status]}>{taskStatusLabel(task.status, translateText)}</Tag>;
 }
 
