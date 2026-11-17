@@ -2,6 +2,8 @@
 name = "oss-browser"
 version = "0.1.0"
 description = "Windows desktop S3 compatible object storage browser"
+license = "MIT"
+repository = "https://github.com/AthenaKnovesp/OSS-Browser"
 edition = "2024"
 rust-version = "1.94.1"
 

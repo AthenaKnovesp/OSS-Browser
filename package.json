@@ -3,6 +3,15 @@
   "version": "0.1.0",
   "description": "Windows desktop S3 compatible object storage browser",
   "author": "OSS Browser",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AthenaKnovesp/OSS-Browser.git"
+  },
+  "homepage": "https://github.com/AthenaKnovesp/OSS-Browser#readme",
+  "bugs": {
+    "url": "https://github.com/AthenaKnovesp/OSS-Browser/issues"
+  },
   "private": true,
   "type": "module",
   "scripts": {

@@ -4,6 +4,18 @@
 
 提供中文和英文界面，以默认浏览页、页内对象搜索和底部任务面板组织日常操作。
 
+## 下载
+
+[最新 Release](https://github.com/AthenaKnovesp/OSS-Browser/releases/latest) · [全部版本](https://github.com/AthenaKnovesp/OSS-Browser/releases)
+
+| Windows x64  | 下载地址                                                                                                                   |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| 安装版       | [下载安装 EXE](https://github.com/AthenaKnovesp/OSS-Browser/releases/latest/download/OSS-Browser-windows-x64-setup.exe)    |
+| 免安装版     | [下载便携 ZIP](https://github.com/AthenaKnovesp/OSS-Browser/releases/latest/download/OSS-Browser-windows-x64-portable.zip) |
+| SHA-256 校验 | [SHA256SUMS.txt](https://github.com/AthenaKnovesp/OSS-Browser/releases/latest/download/SHA256SUMS.txt)                     |
+
+免安装版解压后运行 `OSS Browser.exe`。运行需要系统已有 WebView2；安装器不会自动下载安装运行时。当前二进制未进行代码签名。
+
 ## 功能
 
 - 管理多个连接，支持自定义 endpoint、region、path-style 和默认 Bucket。
@@ -18,7 +30,7 @@
 
 当前仅支持 **Windows x64**，运行依赖系统已有的 **Microsoft Edge WebView2 Runtime**。
 
-- **安装版**：运行 `OSS Browser_0.1.0_x64-setup.exe`，按向导安装到当前用户。
+- **安装版**：运行 Release 中的 `OSS-Browser-windows-x64-setup.exe`，按向导安装到当前用户。
 - **免安装版**：运行目录包中的 `OSS Browser.exe`；若使用 ZIP 分发，先解压后运行。
 
 安装器不附带、下载或安装 WebView2。缺少 WebView2 的机器需要先自行准备运行时。
@@ -132,3 +144,7 @@ AGENTS.md                 项目开发约定和安全不变量
 - 批量上传先校验整个批次再入队。复制成功后才尝试删除源对象；无法安全删除时保留源对象并报告部分成功。
 
 不同 S3-compatible 服务对校验和、条件删除和分片复制的支持存在差异。模拟协议测试和本地测试不能证明所有厂商兼容性，请先在隔离 Bucket 验证操作行为。
+
+## 许可证
+
+本项目采用 [MIT License](LICENSE)，版权归 AthenaKnovesp 所有。使用、修改和分发时请保留版权及许可证声明。第三方依赖遵循各自的许可证。
